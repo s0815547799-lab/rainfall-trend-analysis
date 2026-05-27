@@ -28,8 +28,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.interpolate import RBFInterpolator
-from scipy.spatial import ConvexHull
-
 # ── module-level defaults ─────────────────────────────────────────────────────
 GRID_N  = 90       # NxN interpolation grid
 BUFFER  = 0.10     # degrees of padding around station extent for grid/hull
@@ -60,69 +58,49 @@ def build_grid(lons: np.ndarray, lats: np.ndarray,
 # ║  §2  Boundary polygon                                                    ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-def load_boundary(folder: str | Path,
-                  station_lons: np.ndarray | None = None,
-                  station_lats: np.ndarray | None = None,
-                  expand: float = 0.18) -> list[np.ndarray]:
+def load_boundary(shp_path: str | Path) -> list[np.ndarray]:
     """
-    Try to load a shapefile boundary from folder; fall back to a
-    convex-hull polygon around the supplied station coordinates.
+    Load province boundary polygons from a shapefile.
 
     Parameters
     ----------
-    folder       : directory to search for *.shp
-    station_lons : 1-D lon array of the analysis stations
-    station_lats : 1-D lat array of the analysis stations
-    expand       : fractional hull expansion for the fallback polygon
+    shp_path : path to the .shp file (companion .dbf/.shx must be present)
 
     Returns
     -------
-    list of closed (N, 2) arrays  [lon, lat columns]
+    list of (N, 2) polygon arrays [lon, lat columns]
+
+    Raises
+    ------
+    FileNotFoundError
+        If the .shp file does not exist at the given path.
+    RuntimeError
+        If the shapefile contains no valid polygons.
     """
-    folder = Path(folder)
-    shp_files = sorted(folder.glob("*.shp"))
+    shp_path = Path(shp_path)
+    if not shp_path.exists():
+        raise FileNotFoundError(
+            f"Shapefile not found: {shp_path}\n"
+            f"Required companion files: {shp_path.stem}.dbf, "
+            f"{shp_path.stem}.shx, {shp_path.stem}.prj"
+        )
 
-    if shp_files:
-        try:
-            import shapefile as sf_lib
-            reader = sf_lib.Reader(str(shp_files[0]))
-            polys = []
-            for shape in reader.shapes():
-                pts = np.array(shape.points)
-                if len(pts) >= 3:
-                    polys.append(pts)
-            if polys:
-                print(f"    ✓ Boundary: loaded {shp_files[0].name} "
-                      f"({len(polys)} polygon(s))")
-                return polys
-        except Exception as exc:
-            warnings.warn(f"Shapefile load failed ({exc}); using convex-hull fallback.")
+    import shapefile as sf_lib
+    reader = sf_lib.Reader(str(shp_path))
+    polys  = []
+    for shape in reader.shapes():
+        pts = np.array(shape.points)
+        if len(pts) >= 3:
+            polys.append(pts)
 
-    # ── Fallback: convex hull of station coordinates ──────────────────────
-    if station_lons is not None and station_lats is not None and len(station_lons) >= 3:
-        pts = np.column_stack([station_lons, station_lats])
-        try:
-            hull  = ConvexHull(pts)
-            verts = pts[hull.vertices]
-            # Expand radially from centroid
-            centroid = verts.mean(0)
-            expanded = centroid + (verts - centroid) * (1.0 + expand)
-            # Close the polygon
-            poly = np.vstack([expanded, expanded[[0]]])
-            print(f"    ↳ Boundary: convex-hull fallback ({len(verts)} vertices, "
-                  f"expand={expand:.0%})")
-            return [poly]
-        except Exception as exc:
-            warnings.warn(f"ConvexHull failed ({exc}); using bounding box.")
+    if not polys:
+        raise RuntimeError(
+            f"No valid polygons (≥ 3 points) found in {shp_path.name}. "
+            f"Check that the shapefile is a polygon layer."
+        )
 
-    # ── Last resort: bounding box ─────────────────────────────────────────
-    if station_lons is not None:
-        m  = BUFFER
-        lo, hi = station_lons.min() - m, station_lons.max() + m
-        bo, to = station_lats.min() - m, station_lats.max() + m
-        box = np.array([[lo, bo], [hi, bo], [hi, to], [lo, to], [lo, bo]])
-        return [box]
-    return []
+    print(f"    ✓ Boundary: {shp_path.name} — {len(polys)} polygon(s) loaded")
+    return polys
 
 
 def make_boundary_mask(grid_lon: np.ndarray, grid_lat: np.ndarray,
