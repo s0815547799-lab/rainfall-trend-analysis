@@ -26,6 +26,10 @@ validation_v4/
 # Synthetic test data (not real station data)
 rainfall_data.csv
 
+# Ad-hoc test figures generated during development
+TEST_Fig_*.png
+TEST_Fig_*.pdf
+
 # C extensions
 *.so
 

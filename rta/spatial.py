@@ -69,7 +69,7 @@ def load_coords(folder: str) -> "dict | None":
 
     for path in unique:
         try:
-            df = pd.read_csv(path)
+            df = pd.read_csv(path, dtype=str)
         except Exception:
             continue
 
@@ -90,7 +90,7 @@ def load_coords(folder: str) -> "dict | None":
             df_sub.columns = ["station", "lat", "lon"]
             df_sub = df_sub.dropna(subset=["lat", "lon"])
             result = {
-                str(row["station"]): (float(row["lat"]), float(row["lon"]))
+                str(row["station"]).strip(): (float(row["lat"]), float(row["lon"]))
                 for _, row in df_sub.iterrows()
             }
             if result:

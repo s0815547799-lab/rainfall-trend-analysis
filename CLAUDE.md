@@ -3,10 +3,10 @@
 ## Project Overview
 
 **Title:** Rainfall Trend Analysis — Phetchaburi–Prachuap Khiri Khan River Basin, Western Thailand  
-**Version:** v2.0 (script `rainfall_trend_analysis_v3.py`)  
+**Version:** v2.0 / v4 (scripts `rainfall_trend_analysis_v3.py` and `rainfall_trend_analysis_v4.py`)  
 **Period:** 1981–2014 (daily rainfall)  
 **Purpose:** Publication-ready hydroclimatological trend analysis targeting Q1 journal standards.  
-**Target Output:** 8 publication figures (PNG + TIFF 600 Dpi), 6-sheet Excel summary, Markdown research document.
+**Target Output:** 8+ publication figures (PNG + PDF 600 DPI), 6-sheet Excel summary, Markdown research document, geographic spatial maps.
 
 ---
 
@@ -14,7 +14,24 @@
 
 ```
 rainfall-trend-analysis/
-├── rainfall_trend_analysis_v3.py   # Single-file analysis pipeline (2,304 lines)
+├── rainfall_trend_analysis_v3.py   # Single-file analysis pipeline (legacy)
+├── rainfall_trend_analysis_v4.py   # Modular pipeline (rta/ package + PW/TFPW/spatial)
+├── rta/                            # Python package — hydroclimatological analysis modules
+│   ├── __init__.py
+│   ├── config.py                   # Shared constants (C, DPI, SAVE_PDF, Z_005, savefig)
+│   ├── spatial.py                  # Coordinate loading & validation (load_coords, validate_coords)
+│   ├── spatial_maps.py             # Top-level re-export of all spatial figure functions
+│   ├── figures/
+│   │   ├── spatial.py              # fig8_spatial_summary (v3 Fig 8 — index-based)
+│   │   ├── spatial_maps.py         # True geographic spatial maps (5 public functions)
+│   │   ├── acf_plots.py            # fig12_acf_diagnostics
+│   │   └── ...                     # Other figure modules
+│   ├── trend_tests/                # MK, MMK, PW-MK, TFPW-MK, Sen's slope
+│   ├── pw.py                       # Prewhitening (Yue & Wang 2004)
+│   ├── tfpw.py                     # Trend-Free Prewhitening (Yue et al. 2002)
+│   ├── field_significance.py       # Walker (1914) + Livezey-Chen (1983) MC
+│   └── checkpoint.py               # 6-step pickle checkpoint/resume system
+├── station_coordinates.csv         # WGS84 station coordinates (128 stations)
 ├── prompt trend.pdf                # Project specification document (40 pages)
 ├── README.md                       # Minimal title/version note
 ├── LICENSE                         # MIT License
@@ -348,16 +365,52 @@ python rainfall_trend_analysis_v3.py
 
 ---
 
-## 10. Missing Planned Methods (per specification)
+## 10. Spatial Analysis Modules
 
-The `prompt trend.pdf` specification references additional methods not yet implemented in `v3`. These are documented here for future development:
+### 10.1 Coordinate File
 
-| Method | Status | Notes |
-|--------|--------|-------|
-| Prewhitening (PW) correction | Not implemented | Yue & Wang (2004) |
-| TFPW (Trend-Free Prewhitening) correction | Not implemented | Yue et al. (2002) |
-| Taylor diagram | Not implemented | Multi-station model comparison |
-| Spatial trend maps | Not implemented | Requires coordinate data for stations |
+| File | Format | Discovery |
+|------|--------|-----------|
+| `station_coordinates.csv` | `.csv` | Auto-detected by `load_coords()` via `*coordinates*.csv` glob |
+
+**Columns:** `Station`, `Lat`, `Lon`, `Altitude`  
+**CRS:** WGS84 assumed (EPSG:4326) — no explicit CRS stored in file  
+**Coverage:** 128 stations total; all 12 rainfall stations (500001–500301) present  
+**Coordinate range:** Lat 11.18–12.59°N, Lon 99.55–99.96°E (Prachuap Khiri Khan basin)
+
+### 10.2 `rta/spatial.py` — Coordinate Loading
+
+| Function | Description |
+|----------|-------------|
+| `load_coords(folder)` | Auto-detect and load station coordinates CSV; returns `{station_id: (lat, lon)}` |
+| `validate_coords(coords, stns)` | Report matched/missing/extra stations; returns coverage fraction |
+| `coords_to_df(coords)` | Convert coords dict to tidy DataFrame with columns (Station, Lat, Lon) |
+
+**Key implementation detail:** `pd.read_csv(..., dtype=str)` is used to prevent pandas from reading integer station IDs as float64, which would cause key mismatches (e.g., `'500001.0'` vs `'500001'`).
+
+### 10.3 `rta/figures/spatial_maps.py` — Geographic Figure Functions
+
+| Function | Output Figure | Description |
+|----------|--------------|-------------|
+| `fig_station_distribution(coords, stns, smap, period, out_dir, prefix, alt_dict=None)` | `{prefix}_Fig_SpatialStation.png` | Single-panel geographic station map with compass, scale bar, station labels; optional altitude colouring via `cm.terrain` |
+| `fig_spatial_methods(trend_df, stns, smap, coords, period, out_dir, prefix)` | `{prefix}_Fig_SpatialMethods.png` | 4×3 grid: 4 methods (MK/MMK/PW/TFPW) × 3 scales (Annual/Wet/Dry); geographic bubble maps; size ∝ \|Sen's slope\| |
+| `fig_spatial_field_sig(trend_df, field_sig_df, stns, smap, coords, period, out_dir, prefix)` | `{prefix}_Fig_SpatialFieldSig.png` | 3 geographic \|Z\| magnitude panels (MMK, per scale) + Walker/LC-MC p-value bar chart |
+| `fig_spatial_full(trend_df, stns, smap, coords, field_sig_df, period, out_dir, prefix, alt_dict=None)` | `{prefix}_Fig_SpatialFull.png` | Comprehensive 7-panel overview: (a) stations, (b–e) annual 4 methods, (f) Sen's slope heatcolour, (g) field significance |
+| `fig14_spatial_maps(trend_df, stns, smap, coords, period, out_dir, prefix)` | `{prefix}_Fig14_SpatialMaps.png` | Backward-compatible 3-panel MMK map (Annual/Wet/Dry); uses real coords when available, index-based fallback otherwise |
+
+**Bubble encoding:** Size ∝ \|Sen's slope\|; colour = trend direction (green = increasing p<0.05, red = decreasing p<0.05, grey = not significant).
+
+**Fallback behaviour:** All functions silently skip or fall back to index-based layout when `coords=None` or no stations match the coordinate dictionary.
+
+### 10.4 Previously Missing Methods — Now Implemented
+
+| Method | Status | Module | Reference |
+|--------|--------|--------|-----------|
+| Prewhitening (PW) correction | **Implemented** | `rta/pw.py` | Yue & Wang (2004) |
+| TFPW (Trend-Free Prewhitening) | **Implemented** | `rta/tfpw.py` | Yue et al. (2002) |
+| Field significance (Walker + LC-MC) | **Implemented** | `rta/field_significance.py` | Walker (1914); Livezey & Chen (1983) |
+| Geographic spatial trend maps | **Implemented** | `rta/figures/spatial_maps.py` | — |
+| Taylor diagram | Not implemented | — | Multi-station model comparison |
 
 ---
 
@@ -369,3 +422,6 @@ The `prompt trend.pdf` specification references additional methods not yet imple
 - The dry-season aggregation shifts November/December of year *Y* to year *Y+1* — this is intentional and implements the hydrological year convention for tropical monsoon systems.
 - Autocorrelation correction in MMK uses only **statistically significant** lag-k correlations (not all lags), following Hamed & Rao (1998) strictly.
 - Excel styling constants (`THIN`, `MED`, `XC`) and helper functions (`tb`, `xfill`, `xsc`, `mxsc`, `cw`, `rh`) are defined globally (lines 143–179) and used throughout `write_excel()`.
+- **Spatial coordinate loading:** `load_coords()` uses `pd.read_csv(..., dtype=str)` to prevent pandas from interpreting integer station IDs (e.g., `500001`) as `float64`, which would produce `'500001.0'` keys that fail dictionary lookups against string station names.
+- **`v4` checkpoint system:** 6 steps saved as pickle files in `checkpoints/` subdirectory. On resume, the pipeline detects the highest completed step and jumps directly to figures, skipping all statistical computation.
+- **Spatial figures are only generated when coordinate data is available** (`if coords:` guard in both v3 and v4 scripts). If `station_coordinates.csv` is absent from the input folder, spatial figures are silently skipped; all other figures and outputs are unaffected.

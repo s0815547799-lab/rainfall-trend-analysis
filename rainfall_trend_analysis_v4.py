@@ -64,7 +64,11 @@ from rta.figures.method_comparison import (fig10_z_comparison_matrix,
                                            fig11_method_comparison_scatter)
 from rta.figures.acf_plots import fig12_acf_diagnostics
 from rta.figures.field_sig_plot import fig13_field_significance
-from rta.figures.spatial_maps import fig14_spatial_maps
+from rta.figures.spatial_maps import (fig14_spatial_maps,
+                                      fig_station_distribution,
+                                      fig_spatial_methods,
+                                      fig_spatial_field_sig,
+                                      fig_spatial_full)
 
 # Output modules
 from rta.excel_output import write_excel
@@ -383,9 +387,26 @@ def main():
     print("\n  Figure 13: Field Significance ...")
     fig13_field_significance(field_sig_df, period, out_dir, prefix_v4)
 
-    print("\n  Figure 14: Spatial Trend Maps ...")
+    print("\n  Figure 14: Spatial Trend Maps (geographic, MMK) ...")
     fig14_spatial_maps(trend_df, stns_str, smap, coords, period,
                        out_dir, prefix_v4)
+
+    if coords:
+        print("\n  Figure 14b: Station Distribution Map ...")
+        fig_station_distribution(coords, stns_str, smap, period,
+                                 out_dir, prefix_v4)
+
+        print("\n  Figure 14c: All-Methods Spatial Maps ...")
+        fig_spatial_methods(trend_df, stns_str, smap, coords, period,
+                            out_dir, prefix_v4)
+
+        print("\n  Figure 14d: Field Significance Spatial Map ...")
+        fig_spatial_field_sig(trend_df, field_sig_df, stns_str, smap,
+                              coords, period, out_dir, prefix_v4)
+
+        print("\n  Figure 14e: Comprehensive Spatial Overview ...")
+        fig_spatial_full(trend_df, stns_str, smap, coords, field_sig_df,
+                         period, out_dir, prefix_v4)
 
     # ════════════════════════════════════════════════════════════════════════
     # Step 10: Excel (9 sheets)
