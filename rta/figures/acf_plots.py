@@ -93,3 +93,63 @@ def fig6_autocorrelation(scales, stns, smap, period, out_dir, prefix):
     ax2.spines["top"].set_visible(False); ax2.spines["right"].set_visible(False)
 
     savefig(fig, str(out_dir/f"{prefix}_Fig6_Autocorrelation"))
+
+
+def fig12_acf_diagnostics(scales, stns, smap, period, out_dir, prefix):
+    """Fig 12: Per-station ACF panels (lags 1-10) for annual series — 3×4 grid."""
+    from pathlib import Path
+    stns  = [str(s) for s in stns]
+    codes = [smap.get(s, s) for s in stns]
+    n_s   = len(stns)
+
+    n_cols = 4
+    n_rows = math.ceil(n_s / n_cols)
+    fig, axes = plt.subplots(n_rows, n_cols,
+                             figsize=(5 * n_cols, 4 * n_rows),
+                             sharey=True)
+    fig.subplots_adjust(left=0.06, right=0.97, top=0.92, bottom=0.08,
+                        wspace=0.25, hspace=0.45)
+
+    ax_flat = axes.flat
+    df_ann  = scales.get("annual")
+
+    for idx, (stn, code) in enumerate(zip(stns, codes)):
+        ax = next(ax_flat)
+        if df_ann is None or stn not in df_ann.columns:
+            ax.set_visible(False)
+            continue
+
+        arr    = df_ann[stn].dropna().values.astype(float)
+        n      = len(arr)
+        max_lg = min(10, n // 3)
+        rho    = all_lag_autocorr(arr, max_lag=max_lg)
+        lags   = np.arange(1, len(rho) + 1)
+        ci     = scipy_norm.ppf(0.975) / math.sqrt(n)
+
+        colors = [C["dec"] if abs(r) > ci else C["annual"] for r in rho]
+        ax.bar(lags, rho, width=0.65, color=colors, alpha=0.80,
+               edgecolor="white", linewidth=0.4, zorder=3)
+        ax.axhline( ci, color="red", lw=1.2, ls="--", alpha=0.7)
+        ax.axhline(-ci, color="red", lw=1.2, ls="--", alpha=0.7)
+        ax.axhline(0,   color="black", lw=0.7, ls="-", alpha=0.4)
+
+        r1 = rho[0] if len(rho) > 0 else 0.0
+        sig_r1 = is_sig_autocorr(r1, n)
+        ax.set_title(f"{code}  r₁={r1:.2f}{'*' if sig_r1 else ''}",
+                     fontsize=11, fontweight="bold", pad=3)
+        ax.set_xticks(lags)
+        ax.set_xlabel("Lag (yr)", fontsize=9)
+        ax.set_ylim(-1, 1)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    # Hide unused axes
+    for ax in ax_flat:
+        ax.set_visible(False)
+
+    fig.suptitle(
+        f"Fig 12 — ACF Diagnostics: Annual Rainfall per Station  ({period})\n"
+        "Red bars = significant (α=0.05)  |  Dashed: 95% CI",
+        fontsize=13, fontweight="bold", y=0.97
+    )
+    savefig(fig, str(Path(out_dir) / f"{prefix}_Fig12_ACF_Diagnostics"))

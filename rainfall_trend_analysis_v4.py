@@ -62,6 +62,7 @@ from rta.figures.spatial import fig8_spatial_summary
 from rta.figures.taylor import fig9_taylor_diagram
 from rta.figures.method_comparison import (fig10_z_comparison_matrix,
                                            fig11_method_comparison_scatter)
+from rta.figures.acf_plots import fig12_acf_diagnostics
 from rta.figures.field_sig_plot import fig13_field_significance
 from rta.figures.spatial_maps import fig14_spatial_maps
 
@@ -375,6 +376,9 @@ def main():
     print("\n  Figure 11: Method Comparison Scatter ...")
     fig11_method_comparison_scatter(trend_df, stns_str, smap, period,
                                     out_dir, prefix_v4)
+
+    print("\n  Figure 12: ACF Diagnostics ...")
+    fig12_acf_diagnostics(scales, stns_str, smap, period, out_dir, prefix_v4)
 
     print("\n  Figure 13: Field Significance ...")
     fig13_field_significance(field_sig_df, period, out_dir, prefix_v4)
