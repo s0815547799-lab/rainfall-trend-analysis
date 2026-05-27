@@ -1,0 +1,3 @@
+# Allow all Output_TrendV4_* files in this publication archive directory.
+# Root .gitignore excludes them globally; this override re-includes them here.
+!Output_TrendV4_*
