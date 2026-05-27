@@ -60,6 +60,8 @@ PUB_DIR      = V5_ROOT / "publication_maps_v51"   # top-level; subfolders below
 MK_MMK_DIR   = PUB_DIR / "MK_vs_MMK"
 PW_TFPW_DIR  = PUB_DIR / "PW_vs_TFPW"
 INDIV_DIR    = PUB_DIR / "Individual_Methods"
+ROW4_DIR     = PUB_DIR / "comparison_row"
+SENS_ROW_DIR = PUB_DIR / "senslope_row"
 VAL_DIR      = V5_ROOT / "validation"
 MAN_DIR      = V5_ROOT / "manuscript"
 PERIOD       = "1981–2014"
@@ -118,6 +120,8 @@ from rta_v5.spatial_publication_q1_v5 import (
     fig_q1_spatial_trend_v5,
     fig_compare_v5,
     fig_single_v5,
+    fig_4method_row_v5,
+    fig_senslope_row_v5,
 )
 from rta_v5.spatial_validation_v5 import (
     run_loocv_all, load_field_sig,
@@ -272,12 +276,45 @@ for spec in _SINGLE_SPECS:
             dpi=DPI,
         )
 
+# ── 4-method comparison row figures ──────────────────────────────────────────
+print("\n── 4-method row figures ─────────────────────────────────────────────")
+
+_ROW4_STEMS = {
+    "Annual (Jan–Dec)":     ("annual", "Fig_4Method_Row"),
+    "Wet Season (May–Oct)": ("wet",    "Fig_4Method_Row_Wet"),
+    "Dry Season (Nov–Apr)": ("dry",    "Fig_4Method_Row_Dry"),
+}
+
+for scale, (subdir, stem) in _ROW4_STEMS.items():
+    print(f"\n  {stem}  ({scale})")
+    fig_4method_row_v5(
+        comp4_df=comp4_df, coords_df=coords_df,
+        boundary_dir=BOUNDARY_DIR,
+        out_dir=ROW4_DIR / subdir,
+        stem=stem, period=PERIOD,
+        scale_key=scale, dpi=DPI,
+    )
+
+# ── Sen's slope all-scales row figure ────────────────────────────────────────
+print("\n── Sen's slope row figure ───────────────────────────────────────────")
+fig_senslope_row_v5(
+    comp4_df=comp4_df, coords_df=coords_df,
+    boundary_dir=BOUNDARY_DIR,
+    out_dir=SENS_ROW_DIR,
+    stem="Fig_SenSlope_AllScales_Row",
+    period=PERIOD,
+    scale_keys=list(_SCALES.keys()),
+    dpi=DPI,
+)
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 print("\n" + "=" * 68)
 print("  v5 complete.")
 print(f"  MK_vs_MMK/          : {MK_MMK_DIR}")
 print(f"  PW_vs_TFPW/         : {PW_TFPW_DIR}")
 print(f"  Individual_Methods/ : {INDIV_DIR}")
+print(f"  comparison_row/     : {ROW4_DIR}")
+print(f"  senslope_row/       : {SENS_ROW_DIR}")
 if REGEN_MAIN:
     print(f"  annual/             : {_SCALE_DIRS['Annual (Jan–Dec)']}")
     print(f"  wet/                : {_SCALE_DIRS['Wet Season (May–Oct)']}")

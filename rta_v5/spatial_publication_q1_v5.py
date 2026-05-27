@@ -45,7 +45,7 @@ from .spatial_layout_v5 import (
     setup_fonts,
     LAYOUT, FONT_SERIF,
     C_INC, C_DEC, C_NS, Z_VABS,
-    build_axes, build_axes_compare, build_axes_single,
+    build_axes, build_axes_compare, build_axes_single, build_row_layout,
     north_arrow, scale_bar, format_map_axes,
 )
 from .spatial_export_v5 import save_formats
@@ -301,10 +301,9 @@ def fig_q1_spatial_trend_v5(
                lons=lons, lats=lats,
                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
-    # Shared Z-stat kwargs — draw_inset_cbar=False; shared cbar added below
+    # Z-stat kwargs — per-panel inset colorbars (draw_inset_cbar=True default)
     z_kw = dict(cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
-                cb_label="Z", cb_ticks=z_ticks, cb_thresholds=z_thresh,
-                draw_inset_cbar=False)
+                cb_label="Z", cb_ticks=z_ticks, cb_thresholds=z_thresh)
 
     _draw_panel(ax_a, zz=grids["MK_Z"], z_vals=df["MK_Z"].values,
                 sig_arr=sigs["MK_Z"],
@@ -332,7 +331,6 @@ def fig_q1_spatial_trend_v5(
                 cmap=cmap_s, vmin=-slp_abs, vmax=slp_abs,
                 cb_label="mm yr⁻¹", cb_ticks=slope_ticks,
                 cb_thresholds=None,
-                draw_inset_cbar=False,
                 **geo)
 
     # ── Suptitle ──────────────────────────────────────────────────────────────
@@ -347,39 +345,7 @@ def fig_q1_spatial_trend_v5(
         fontsize=9.5, fontfamily=FONT_SERIF, y=0.975,
     )
 
-    # ── Shared colorbars (bottom margin, below GridSpec bottom=0.16) ──────────
-    L = LAYOUT
-
-    # Z-statistic colorbar — covers panels (a)–(d)
-    cbar_z_ax = fig.add_axes([L["sbar_z_x"], L["sbar_y"],
-                               L["sbar_z_w"], L["sbar_h"]])
-    norm_z = mcolors.Normalize(vmin=-Z_VABS, vmax=Z_VABS)
-    sm_z   = plt.cm.ScalarMappable(cmap=cmap_z, norm=norm_z)
-    sm_z.set_array([])
-    cbar_z = fig.colorbar(sm_z, cax=cbar_z_ax, orientation="horizontal")
-    cbar_z.set_ticks(z_ticks)
-    cbar_z.set_label("Z Statistic (MK / MMK / PW / TFPW)",
-                     fontsize=6.0, fontfamily=FONT_SERIF, labelpad=2)
-    cbar_z.ax.tick_params(labelsize=5.0, length=2, pad=1.0, width=0.5)
-    for zv, ls in z_thresh:
-        if -Z_VABS < zv < Z_VABS:
-            npos = (zv - (-Z_VABS)) / (2 * Z_VABS)
-            cbar_z_ax.axvline(npos, color="#333333", lw=0.6, ls=ls, zorder=5)
-
-    # Sen's slope colorbar — covers panel (e)
-    cbar_s_ax = fig.add_axes([L["sbar_s_x"], L["sbar_y"],
-                               L["sbar_s_w"], L["sbar_h"]])
-    norm_s = mcolors.Normalize(vmin=-slp_abs, vmax=slp_abs)
-    sm_s   = plt.cm.ScalarMappable(cmap=cmap_s, norm=norm_s)
-    sm_s.set_array([])
-    cbar_s = fig.colorbar(sm_s, cax=cbar_s_ax, orientation="horizontal")
-    cbar_s.set_ticks(slope_ticks)
-    cbar_s.set_ticklabels([f"{v:.1f}" for v in slope_ticks])
-    cbar_s.set_label("Sen's Slope (mm yr⁻¹)",
-                     fontsize=6.0, fontfamily=FONT_SERIF, labelpad=2)
-    cbar_s.ax.tick_params(labelsize=5.0, length=2, pad=1.0, width=0.5)
-
-    # ── Trend classification legend ───────────────────────────────────────────
+    # ── Trend classification legend — compact, bottom-left of figure ─────────
     legend_handles = [
         Line2D([0], [0], marker="^", linestyle="none",
                markerfacecolor=C_INC, markeredgecolor="white",
@@ -394,21 +360,19 @@ def fig_q1_spatial_trend_v5(
     fig.legend(
         handles=legend_handles,
         loc="lower left",
-        bbox_to_anchor=(L["sbar_z_x"], L["sbar_y"] + L["sbar_h"] + 0.018),
+        bbox_to_anchor=(0.07, 0.01),
         bbox_transform=fig.transFigure,
         ncol=3, fontsize=5.5, framealpha=0.88,
-        edgecolor="#999999", handletextpad=0.4, columnspacing=1.0,
-        handlelength=1.0,
+        edgecolor="#999999", handletextpad=0.4,
+        columnspacing=1.0, handlelength=1.0,
     )
 
-    # ── Interpolation metadata text ───────────────────────────────────────────
+    # ── Interpolation metadata — compact text at bottom-right ─────────────────
     fig.text(
-        L["sbar_z_x"],
-        L["sbar_y"] - 0.032,
-        f"Spatial interpolation: {best_name}  |  Grid: {GRID_N}×{GRID_N}  "
-        f"|  Boundary mask: province polygon",
-        fontsize=5.0, color="#555555",
-        fontfamily=FONT_SERIF,
+        0.97, 0.01,
+        f"Method: {best_name}  |  Grid: {GRID_N}×{GRID_N}",
+        fontsize=4.5, color="#666666",
+        fontfamily=FONT_SERIF, ha="right",
     )
 
     # ── Save ──────────────────────────────────────────────────────────────────
@@ -605,6 +569,226 @@ def fig_single_v5(
     fig.suptitle(
         f"{scale_short}  |  {period}",
         fontsize=9.0, fontfamily=FONT_SERIF,
+    )
+
+    save_formats(fig, Path(out_dir), stem, dpi)
+    plt.close(fig)
+
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  Modular row-figure helpers                                              ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+def _row_setup(comp4_df, coords_df, boundary_dir, scale_key):
+    """Shared setup: boundary, coords, grid, mask, best interpolation method."""
+    polys = load_boundary(boundary_dir)
+    xmin, xmax, ymin, ymax = boundary_extent(polys)
+
+    df = comp4_df[comp4_df["Scale"] == scale_key].copy()
+    if df.empty:
+        raise ValueError(
+            f"No data for scale '{scale_key}'. "
+            f"Available: {comp4_df['Scale'].unique().tolist()}"
+        )
+
+    stns = df["Station"].astype(str).values
+    cd   = dict(zip(
+        coords_df["station_id"].astype(str),
+        zip(coords_df["lon"].astype(float), coords_df["lat"].astype(float)),
+    ))
+    lons = np.array([cd[s][0] for s in stns])
+    lats = np.array([cd[s][1] for s in stns])
+    pts  = np.column_stack([lons, lats])
+
+    gl, gt, xi = build_grid(xmin, xmax, ymin, ymax, GRID_N)
+    mask        = make_boundary_mask(gl, gt, polys)
+
+    mmk_z = df["MMK_Z"].values.astype(float)
+    ok    = ~np.isnan(mmk_z)
+    method = select_best(pts[ok], mmk_z[ok], gl, gt, xi)[1] if ok.sum() >= 4 else "IDW"
+
+    return polys, df, lons, lats, pts, gl, gt, xi, mask, xmin, xmax, ymin, ymax, method
+
+
+def plot_method_panel(ax, df_row, col, sig_col, pts, gl, gt, xi, mask, method,
+                      cmap, vmin, vmax, z_ticks, z_thresh, title,
+                      polys, lons, lats, xmin, xmax, ymin, ymax) -> None:
+    """Render one Z-statistic method panel (reuses _draw_panel)."""
+    vals    = df_row[col].values.astype(float)
+    sig_arr = np.array([str(s) in ("*", "**") for s in df_row[sig_col].values])
+    zz      = _interp_masked(pts, vals, xi, gl, mask, method)
+    _draw_panel(ax, polys=polys, gl=gl, gt=gt, mask=mask, zz=zz,
+                cmap=cmap, vmin=vmin, vmax=vmax,
+                lons=lons, lats=lats, z_vals=vals, sig_arr=sig_arr,
+                full_title=title, cb_label="Z",
+                cb_ticks=z_ticks, cb_thresholds=z_thresh,
+                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+
+def plot_senslope_panel(ax, slope_vals, sig_arr, pts, gl, gt, xi, mask, method,
+                        cmap, vabs, title,
+                        polys, lons, lats, xmin, xmax, ymin, ymax) -> None:
+    """Render one Sen's slope panel (reuses _draw_panel)."""
+    zz = _interp_masked(pts, slope_vals, xi, gl, mask, method)
+    _draw_panel(ax, polys=polys, gl=gl, gt=gt, mask=mask, zz=zz,
+                cmap=cmap, vmin=-vabs, vmax=vabs,
+                lons=lons, lats=lats, z_vals=slope_vals, sig_arr=sig_arr,
+                full_title=title, cb_label="mm yr⁻¹",
+                cb_ticks=[-vabs, 0.0, vabs], cb_thresholds=None,
+                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+
+# ── Four-method comparison row ────────────────────────────────────────────────
+
+def fig_4method_row_v5(
+    comp4_df:     pd.DataFrame,
+    coords_df:    pd.DataFrame,
+    boundary_dir: str | Path,
+    out_dir:      str | Path,
+    stem:         str,
+    period:       str,
+    scale_key:    str,
+    dpi:          int = 600,
+) -> None:
+    """
+    Single-row 4-panel: (a) MK  (b) MMK  (c) PW-MK  (d) TFPW-MK.
+
+    All panels share Z-stat colormap; per-panel inset colorbars.
+    """
+    setup_fonts()
+    polys, df, lons, lats, pts, gl, gt, xi, mask, xmin, xmax, ymin, ymax, method = \
+        _row_setup(comp4_df, coords_df, boundary_dir, scale_key)
+    print(f"    Method: {method}")
+
+    cmap_z = matplotlib.colormaps["RdBu_r"].copy()
+    cmap_z.set_bad("white")
+    z_ticks  = [-Z_VABS, 0.0, Z_VABS]
+    z_thresh = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
+
+    geo = dict(polys=polys, lons=lons, lats=lats,
+               xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+    specs = [
+        ("MK_Z",   "MK_sig",   "(a) Standard MK — Z"),
+        ("MMK_Z",  "MMK_sig",  "(b) Modified MK (Hamed 1998) — Z"),
+        ("PW_Z",   "PW_sig",   "(c) PW-MK (Yue & Wang 2004) — Z"),
+        ("TFPW_Z", "TFPW_sig", "(d) TFPW-MK (Yue et al. 2002) — Z"),
+    ]
+
+    fig = plt.figure(figsize=(LAYOUT["row4_fig_w"], LAYOUT["row4_fig_h"]),
+                     constrained_layout=False)
+    axes = build_row_layout(fig, 4)
+
+    for ax, (col, sig_col, title) in zip(axes, specs):
+        plot_method_panel(ax, df, col, sig_col, pts, gl, gt, xi, mask, method,
+                          cmap_z, -Z_VABS, Z_VABS, z_ticks, z_thresh, title,
+                          **geo)
+
+    scale_short = {
+        "Annual (Jan–Dec)":     "Annual (Jan–Dec)",
+        "Wet Season (May–Oct)": "Wet Season (May–Oct)",
+        "Dry Season (Nov–Apr)": "Dry Season (Nov–Apr)",
+    }.get(scale_key, scale_key)
+    fig.suptitle(
+        f"Four-Method MK Comparison — {scale_short}  |  {period}",
+        fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
+    )
+
+    save_formats(fig, Path(out_dir), stem, dpi)
+    plt.close(fig)
+
+
+# ── Sen's slope all-scales row ────────────────────────────────────────────────
+
+def fig_senslope_row_v5(
+    comp4_df:     pd.DataFrame,
+    coords_df:    pd.DataFrame,
+    boundary_dir: str | Path,
+    out_dir:      str | Path,
+    stem:         str,
+    period:       str,
+    scale_keys:   list[str],
+    dpi:          int = 600,
+) -> None:
+    """
+    Single-row Sen's slope panels across all temporal scales.
+
+    Panels share identical color scale (global |slope| max).
+    """
+    setup_fonts()
+
+    # Boundary and grid are the same for every scale
+    polys = load_boundary(boundary_dir)
+    xmin, xmax, ymin, ymax = boundary_extent(polys)
+    gl, gt, xi = build_grid(xmin, xmax, ymin, ymax, GRID_N)
+    mask        = make_boundary_mask(gl, gt, polys)
+
+    cmap_s = matplotlib.colormaps["RdYlGn"].copy()
+    cmap_s.set_bad("white")
+
+    panels: list[dict] = []
+    global_vabs = 5.0
+
+    for scale_key in scale_keys:
+        df = comp4_df[comp4_df["Scale"] == scale_key].copy()
+        if df.empty:
+            continue
+
+        stns = df["Station"].astype(str).values
+        cd   = dict(zip(
+            coords_df["station_id"].astype(str),
+            zip(coords_df["lon"].astype(float), coords_df["lat"].astype(float)),
+        ))
+        lons = np.array([cd[s][0] for s in stns])
+        lats = np.array([cd[s][1] for s in stns])
+        pts  = np.column_stack([lons, lats])
+
+        mmk_z = df["MMK_Z"].values.astype(float)
+        ok    = ~np.isnan(mmk_z)
+        method = select_best(pts[ok], mmk_z[ok], gl, gt, xi)[1] if ok.sum() >= 4 else "IDW"
+        print(f"    {scale_key}: {method}")
+
+        slope_v = df["MK_slope"].values.astype(float)
+        sig_arr = np.array([str(s) in ("*", "**") for s in df["MK_sig"].values])
+        zz      = _interp_masked(pts, slope_v, xi, gl, mask, method)
+
+        fin = zz[mask & np.isfinite(zz)]
+        if len(fin):
+            global_vabs = max(global_vabs,
+                              float(np.ceil(np.abs(fin).max() / 5) * 5))
+
+        panels.append(dict(lons=lons, lats=lats, pts=pts, slope_v=slope_v,
+                           sig_arr=sig_arr, zz=zz, scale_key=scale_key,
+                           method=method))
+
+    global_vabs = float(np.ceil(max(global_vabs, 5) / 5) * 5)
+
+    _LABELS = {
+        "Annual (Jan–Dec)":     "Annual",
+        "Wet Season (May–Oct)": "Wet Season",
+        "Dry Season (Nov–Apr)": "Dry Season",
+    }
+    letters = ["(a)", "(b)", "(c)", "(d)"]
+
+    fig = plt.figure(figsize=(LAYOUT["row_sens_fig_w"], LAYOUT["row_sens_fig_h"]),
+                     constrained_layout=False)
+    axes = build_row_layout(fig, len(panels))
+
+    for ax, pdata, letter in zip(axes, panels, letters):
+        title = (f"{letter} {_LABELS.get(pdata['scale_key'], pdata['scale_key'])}"
+                 f" — mm yr⁻¹")
+        plot_senslope_panel(
+            ax, pdata["slope_v"], pdata["sig_arr"],
+            pts=pdata["pts"], gl=gl, gt=gt, xi=xi, mask=mask,
+            method=pdata["method"], cmap=cmap_s, vabs=global_vabs,
+            title=title, polys=polys,
+            lons=pdata["lons"], lats=pdata["lats"],
+            xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+        )
+
+    fig.suptitle(
+        f"Sen's Slope — All Temporal Scales  |  {period}",
+        fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
     )
 
     save_formats(fig, Path(out_dir), stem, dpi)

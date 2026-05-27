@@ -60,34 +60,31 @@ Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
 # Single-method figure: 5.5 × 8.5 inches, 1-row × 1-col GridSpec
 #
 LAYOUT = {
-    # 5-panel figure (3×4, constrained_layout=False)
-    "fig_w":     11.0,      # inches — original width
-    "fig_h":     13.5,      # inches — adds ~1" vs 12.5 for shared cbar row
+    # 5-panel figure (3×4, constrained_layout=False, original dimensions)
+    "fig_w":     11.0,      # inches
+    "fig_h":     12.5,      # inches — restored to original height
     # Comparison figure (2 panels side-by-side)
     "cmp_fig_w": 10.0,
     "cmp_fig_h": 8.5,
     # Single-method figure (1 panel)
     "sgl_fig_w": 5.5,
     "sgl_fig_h": 8.5,
+    # Row figures — single horizontal strip of maps
+    "row4_fig_w":    14.0,  # 4-method comparison row
+    "row4_fig_h":     6.5,
+    "row_sens_fig_w": 11.0, # Sen's slope all-scales row
+    "row_sens_fig_h":  6.5,
     "dpi":       600,
     # Station marker
     "stn_size":  60,
     # Province outline
     "poly_lw":   0.70,
     "poly_color":"#222222",
-    # Inset colorbar geometry — used by comparison and single figures only
+    # Inset colorbar geometry (per-panel, axes-fraction coords)
     "cbar_x0":   0.695,
     "cbar_y0":   0.030,
     "cbar_w":    0.275,
     "cbar_h":    0.056,
-    # Shared colorbar geometry — figure-fraction coords for 5-panel figure
-    # Z-stat bar spans left 4/6 of figure; slope bar spans right 2/6
-    "sbar_z_x":  0.07,      # Z-stat cbar left edge
-    "sbar_z_w":  0.53,      # Z-stat cbar width
-    "sbar_s_x":  0.67,      # Slope cbar left edge
-    "sbar_s_w":  0.28,      # Slope cbar width
-    "sbar_y":    0.075,     # both cbars: bottom edge (figure fraction)
-    "sbar_h":    0.018,     # both cbars: height
 }
 
 
@@ -118,7 +115,7 @@ def build_axes(fig):
         height_ratios=[1, 1, 1.05],
         hspace=0.18, wspace=0.12,
         left=0.07, right=0.97,
-        top=0.93, bottom=0.16,
+        top=0.93, bottom=0.08,
     )
     ax_a = fig.add_subplot(gs[0, 0:2])   # (a) Standard MK
     ax_b = fig.add_subplot(gs[0, 2:4])   # (b) Modified MK
@@ -153,6 +150,32 @@ def build_axes_single(fig):
     from matplotlib.gridspec import GridSpec
     gs = GridSpec(1, 1, figure=fig)
     return fig.add_subplot(gs[0, 0])
+
+
+def build_row_layout(fig, n_cols: int) -> list:
+    """
+    Build a 1×n_cols horizontal row of map axes for row-comparison figures.
+
+    constrained_layout=False — explicit margins leave bottom=0.07 for
+    per-panel inset colorbars and figure suptitle at top=0.88.
+
+    Parameters
+    ----------
+    fig    : figure created by the caller (constrained_layout=False)
+    n_cols : number of map panels (columns)
+
+    Returns
+    -------
+    list of n_cols map axes, left to right
+    """
+    from matplotlib.gridspec import GridSpec
+    gs = GridSpec(
+        1, n_cols, figure=fig,
+        left=0.04, right=0.98,
+        top=0.88, bottom=0.07,
+        wspace=0.10,
+    )
+    return [fig.add_subplot(gs[0, i]) for i in range(n_cols)]
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
