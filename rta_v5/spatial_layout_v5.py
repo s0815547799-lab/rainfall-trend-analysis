@@ -7,6 +7,9 @@ v5.1 refinements (in-place):
   • Per-panel inset colorbars replace shared global colorbar axes
   • build_axes() returns 5 map axes only (no colorbar axes)
   • Geographic aspect-aware figure scaling
+  • Colorblind-safe station marker palette (Wong 2011)
+  • build_axes_compare() — 1×2 panel for side-by-side method comparisons
+  • build_axes_single()  — 1-panel for standalone method figures
 
 All layout parameters live here so any figure change requires editing
 only this file.
@@ -35,10 +38,10 @@ def setup_fonts() -> None:
     })
 
 
-# ── Colors ────────────────────────────────────────────────────────────────────
-C_INC = "#1B5E20"   # significant increasing — dark green
-C_DEC = "#B71C1C"   # significant decreasing — dark red
-C_NS  = "#78909C"   # not significant        — grey
+# ── Colors — Wong (2011) colorblind-safe palette ─────────────────────────────
+C_INC = "#0072B2"   # significant increasing — blue   (safe for CVD)
+C_DEC = "#D55E00"   # significant decreasing — vermilion (safe for CVD)
+C_NS  = "#78909C"   # not significant        — grey   (neutral)
 
 # ── Colormap bounds ───────────────────────────────────────────────────────────
 Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
@@ -46,16 +49,25 @@ Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
 
 # ── Layout specification ──────────────────────────────────────────────────────
 #
-# Figure: 11 × 12.5 inches  (constrained_layout handles all internal spacing)
-# Maps:   3-row × 4-col GridSpec — constrained_layout, no explicit margins
+# 5-panel figure: 11 × 12.5 inches  (constrained_layout)
+# Maps:   3-row × 4-col GridSpec
 #           Row 0: (a) cols 0:2,  (b) cols 2:4
 #           Row 1: (c) cols 0:2,  (d) cols 2:4
-#           Row 2: (e) cols 1:3   ← exactly centred
+#           Row 2: (empty) cols 0:2, (e) cols 2:4  ← lower-right
+# Comparison figure: 10 × 8.5 inches, 1-row × 2-col GridSpec
+# Single-method figure: 5.5 × 8.5 inches, 1-row × 1-col GridSpec
 # Colorbars: per-panel inset axes (lower-right of each panel)
 #
 LAYOUT = {
+    # 5-panel figure
     "fig_w":     11.0,      # inches
-    "fig_h":     12.5,      # inches — tighter than v5's 13.0
+    "fig_h":     12.5,      # inches
+    # Comparison figure (2 panels side-by-side)
+    "cmp_fig_w": 10.0,
+    "cmp_fig_h": 8.5,
+    # Single-method figure (1 panel)
+    "sgl_fig_w": 5.5,
+    "sgl_fig_h": 8.5,
     "dpi":       600,
     # Station marker
     "stn_size":  60,
@@ -94,9 +106,35 @@ def build_axes(fig):
     ax_b = fig.add_subplot(gs[0, 2:4])
     ax_c = fig.add_subplot(gs[1, 0:2])
     ax_d = fig.add_subplot(gs[1, 2:4])
-    ax_e = fig.add_subplot(gs[2, 1:3])   # centred: cols 1–2 of 4
+    ax_e = fig.add_subplot(gs[2, 2:4])   # lower-right: cols 2–3 of 4
 
     return ax_a, ax_b, ax_c, ax_d, ax_e
+
+
+def build_axes_compare(fig):
+    """
+    1-row × 2-col layout for side-by-side method comparison figures.
+
+    Returns
+    -------
+    ax_a, ax_b : left and right map axes
+    """
+    from matplotlib.gridspec import GridSpec
+    gs = GridSpec(1, 2, figure=fig)
+    return fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
+
+
+def build_axes_single(fig):
+    """
+    Single-panel layout for standalone method figures.
+
+    Returns
+    -------
+    ax : the single map axes
+    """
+    from matplotlib.gridspec import GridSpec
+    gs = GridSpec(1, 1, figure=fig)
+    return fig.add_subplot(gs[0, 0])
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗

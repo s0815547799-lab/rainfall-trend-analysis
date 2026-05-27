@@ -42,7 +42,7 @@ from .spatial_layout_v5 import (
     setup_fonts,
     LAYOUT, FONT_SERIF,
     C_INC, C_DEC, C_NS, Z_VABS,
-    build_axes,
+    build_axes, build_axes_compare, build_axes_single,
     north_arrow, scale_bar, format_map_axes,
 )
 from .spatial_export_v5 import save_formats
@@ -348,3 +348,195 @@ def fig_q1_spatial_trend_v5(
     plt.close(fig)
 
     return loocv_rows, best_name, all_metrics
+
+
+# ── Comparison figure ─────────────────────────────────────────────────────────
+
+def fig_compare_v5(
+    comp4_df:     pd.DataFrame,
+    coords_df:    pd.DataFrame,
+    boundary_dir: str | Path,
+    out_dir:      str | Path,
+    stem:         str,
+    period:       str,
+    scale_key:    str,
+    col_a:        str,   # left panel column  (e.g. "MK_Z")
+    sig_a:        str,   # left panel sig col (e.g. "MK_sig")
+    title_a:      str,   # left panel title   (e.g. "(a) Standard MK — Z Statistic")
+    col_b:        str,   # right panel column
+    sig_b:        str,   # right panel sig col
+    title_b:      str,   # right panel title
+    dpi:          int = 600,
+) -> None:
+    """
+    2-panel side-by-side method comparison figure.
+
+    Both panels share identical Z-stat colormap, normalization, and
+    significance symbology for direct visual comparison.
+    """
+    setup_fonts()
+
+    polys = load_boundary(boundary_dir)
+    xmin, xmax, ymin, ymax = boundary_extent(polys)
+
+    df = comp4_df[comp4_df["Scale"] == scale_key].copy()
+    if df.empty:
+        raise ValueError(f"No data for scale '{scale_key}'")
+
+    stns = df["Station"].astype(str).values
+    cd   = dict(zip(
+        coords_df["station_id"].astype(str),
+        zip(coords_df["lon"].astype(float), coords_df["lat"].astype(float)),
+    ))
+    lons = np.array([cd[s][0] for s in stns])
+    lats = np.array([cd[s][1] for s in stns])
+    pts  = np.column_stack([lons, lats])
+
+    gl, gt, xi = build_grid(xmin, xmax, ymin, ymax, GRID_N)
+    mask       = make_boundary_mask(gl, gt, polys)
+
+    # Best method from LOOCV on MMK_Z
+    mmk_z = df["MMK_Z"].values.astype(float)
+    ok    = ~np.isnan(mmk_z)
+    best_name = select_best(pts[ok], mmk_z[ok], gl, gt, xi)[1] if ok.sum() >= 4 else "IDW"
+    print(f"    Method: {best_name}")
+
+    va = df[col_a].values.astype(float)
+    vb = df[col_b].values.astype(float)
+    grid_a = _interp_masked(pts, va, xi, gl, mask, best_name)
+    grid_b = _interp_masked(pts, vb, xi, gl, mask, best_name)
+
+    sig_arr_a = np.array([str(s) in ("*", "**") for s in df[sig_a].values])
+    sig_arr_b = np.array([str(s) in ("*", "**") for s in df[sig_b].values])
+
+    # Synchronized colormap and normalization
+    cmap_z = matplotlib.colormaps["RdBu_r"].copy()
+    cmap_z.set_bad("white")
+    z_ticks  = [-Z_VABS, 0.0, Z_VABS]
+    z_thresh = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
+
+    geo = dict(polys=polys, gl=gl, gt=gt, mask=mask,
+               lons=lons, lats=lats,
+               xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+    z_kw = dict(cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
+                cb_label="Z", cb_ticks=z_ticks, cb_thresholds=z_thresh)
+
+    fig = plt.figure(figsize=(LAYOUT["cmp_fig_w"], LAYOUT["cmp_fig_h"]),
+                     constrained_layout=True)
+    ax_a, ax_b = build_axes_compare(fig)
+
+    _draw_panel(ax_a, zz=grid_a, z_vals=va, sig_arr=sig_arr_a,
+                full_title=title_a, **geo, **z_kw)
+    _draw_panel(ax_b, zz=grid_b, z_vals=vb, sig_arr=sig_arr_b,
+                full_title=title_b, **geo, **z_kw)
+
+    scale_short = {
+        "Annual (Jan–Dec)":     "Annual (Jan–Dec)",
+        "Wet Season (May–Oct)": "Wet Season (May–Oct)",
+        "Dry Season (Nov–Apr)": "Dry Season (Nov–Apr)",
+    }.get(scale_key, scale_key)
+
+    fig.suptitle(
+        f"Method Comparison — {scale_short}  |  {period}",
+        fontsize=9.5, fontfamily=FONT_SERIF,
+    )
+
+    save_formats(fig, Path(out_dir), stem, dpi)
+    plt.close(fig)
+
+
+# ── Single-method figure ──────────────────────────────────────────────────────
+
+def fig_single_v5(
+    comp4_df:     pd.DataFrame,
+    coords_df:    pd.DataFrame,
+    boundary_dir: str | Path,
+    out_dir:      str | Path,
+    stem:         str,
+    period:       str,
+    scale_key:    str,
+    col:          str,       # data column (e.g. "MK_Z" or "MK_slope")
+    sig_col:      str,       # significance column (e.g. "MK_sig")
+    panel_title:  str,       # axes title (e.g. "Standard MK — Z Statistic")
+    is_slope:     bool = False,
+    dpi:          int  = 600,
+) -> None:
+    """
+    Single-panel standalone publication figure for one trend method.
+
+    Portrait orientation, province-shape-aware aspect.
+    """
+    setup_fonts()
+
+    polys = load_boundary(boundary_dir)
+    xmin, xmax, ymin, ymax = boundary_extent(polys)
+
+    df = comp4_df[comp4_df["Scale"] == scale_key].copy()
+    if df.empty:
+        raise ValueError(f"No data for scale '{scale_key}'")
+
+    stns = df["Station"].astype(str).values
+    cd   = dict(zip(
+        coords_df["station_id"].astype(str),
+        zip(coords_df["lon"].astype(float), coords_df["lat"].astype(float)),
+    ))
+    lons = np.array([cd[s][0] for s in stns])
+    lats = np.array([cd[s][1] for s in stns])
+    pts  = np.column_stack([lons, lats])
+
+    gl, gt, xi = build_grid(xmin, xmax, ymin, ymax, GRID_N)
+    mask       = make_boundary_mask(gl, gt, polys)
+
+    mmk_z = df["MMK_Z"].values.astype(float)
+    ok    = ~np.isnan(mmk_z)
+    best_name = select_best(pts[ok], mmk_z[ok], gl, gt, xi)[1] if ok.sum() >= 4 else "IDW"
+    print(f"    Method: {best_name}")
+
+    v   = df[col].values.astype(float)
+    grd = _interp_masked(pts, v, xi, gl, mask, best_name)
+    sig_arr = np.array([str(s) in ("*", "**") for s in df[sig_col].values])
+
+    if is_slope:
+        cmap = matplotlib.colormaps["RdYlGn"].copy()
+        cmap.set_bad("white")
+        fin    = grd[mask & np.isfinite(grd)]
+        slpabs = float(np.ceil(max(np.abs(fin).max() if len(fin) else 5, 5) / 5) * 5)
+        vmin, vmax = -slpabs, slpabs
+        ticks  = [-slpabs, 0.0, slpabs]
+        thresh = None
+        cb_lbl = "mm yr⁻¹"
+    else:
+        cmap = matplotlib.colormaps["RdBu_r"].copy()
+        cmap.set_bad("white")
+        vmin, vmax = -Z_VABS, Z_VABS
+        ticks  = [-Z_VABS, 0.0, Z_VABS]
+        thresh = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
+        cb_lbl = "Z"
+
+    geo = dict(polys=polys, gl=gl, gt=gt, mask=mask,
+               lons=lons, lats=lats,
+               xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+    fig = plt.figure(figsize=(LAYOUT["sgl_fig_w"], LAYOUT["sgl_fig_h"]),
+                     constrained_layout=True)
+    ax = build_axes_single(fig)
+
+    _draw_panel(ax, zz=grd, z_vals=v, sig_arr=sig_arr,
+                full_title=panel_title,
+                cmap=cmap, vmin=vmin, vmax=vmax,
+                cb_label=cb_lbl, cb_ticks=ticks, cb_thresholds=thresh,
+                **geo)
+
+    scale_short = {
+        "Annual (Jan–Dec)":     "Annual (Jan–Dec)",
+        "Wet Season (May–Oct)": "Wet Season (May–Oct)",
+        "Dry Season (Nov–Apr)": "Dry Season (Nov–Apr)",
+    }.get(scale_key, scale_key)
+
+    fig.suptitle(
+        f"{scale_short}  |  {period}",
+        fontsize=9.0, fontfamily=FONT_SERIF,
+    )
+
+    save_formats(fig, Path(out_dir), stem, dpi)
+    plt.close(fig)
