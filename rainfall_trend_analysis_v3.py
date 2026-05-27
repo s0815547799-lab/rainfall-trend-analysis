@@ -304,6 +304,15 @@ def aggregate_all(df: pd.DataFrame) -> dict:
     dry_raw.index = pd.DatetimeIndex(new_idx)
     scales["dry"] = dry_raw.resample("YS").apply(
         lambda g: g.sum(min_count=int(0.8 * len(g))))
+    # Null out blocks missing any of the 6 required months (Nov–Apr).
+    # Boundary blocks at data start/end are incomplete and must not enter MK.
+    _dry_req = frozenset([11, 12, 1, 2, 3, 4])
+    _mcov = (dry_raw.groupby(dry_raw.index.year)
+             .apply(lambda g: frozenset(g.index.month.tolist())))
+    _incomp = [yr for yr in scales["dry"].index.year
+               if _mcov.get(yr, frozenset()) != _dry_req]
+    if _incomp:
+        scales["dry"].loc[scales["dry"].index.year.isin(_incomp)] = np.nan
 
     # Monthly climatology (mean monthly total)
     monthly_all = df.resample("MS").apply(

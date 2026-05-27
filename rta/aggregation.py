@@ -76,6 +76,17 @@ def aggregate_all(df: pd.DataFrame) -> dict:
         lambda g: g.sum(min_count=int(0.8 * len(g)))
     )
 
+    # Null out blocks that do not contain all 6 required months (Nov–Apr).
+    # Boundary blocks at the data start/end are incomplete (e.g. Jan–Apr only
+    # at the start, or Nov–Dec only at the end) and must not enter MK analysis.
+    _dry_required = frozenset([11, 12, 1, 2, 3, 4])
+    _month_cov = (dry_raw.groupby(dry_raw.index.year)
+                  .apply(lambda g: frozenset(g.index.month.tolist())))
+    _incomplete = [yr for yr in scales["dry"].index.year
+                   if _month_cov.get(yr, frozenset()) != _dry_required]
+    if _incomplete:
+        scales["dry"].loc[scales["dry"].index.year.isin(_incomplete)] = np.nan
+
     # ── Monthly climatology (full monthly total series) ───────────────────
     monthly_all = df.resample("MS").apply(
         lambda g: g.sum(min_count=int(0.8 * len(g)))
@@ -224,47 +235,75 @@ def validate_dry_season(scales: dict, out_path: Path = None) -> dict:
                 f"Expected an integer in [1900, 2200]."
             )
 
+    # ── Check 4: All included blocks must have all 6 required months ─────
+    _dry_required = frozenset([11, 12, 1, 2, 3, 4])
+    # Count non-NaN stations per year; a year with 0 non-NaN stations is excluded.
+    stns = dry_df.columns.tolist()
+    for y in years_sorted:
+        row_mask = dry_df.index.year == y
+        sub      = dry_df.loc[row_mask]
+        if len(sub) > 0 and stns:
+            non_nan = int(sub[stns].notna().any(axis=0).sum())
+            if non_nan == len(stns):
+                pass  # full block with data — accepted
+            elif non_nan > 0:
+                # Partial data: some stations NaN, some not — warn
+                errors.append(
+                    f"Year {y}: mixed NaN coverage ({non_nan}/{len(stns)} stations "
+                    f"non-NaN). Possible partial season escaped the completeness filter."
+                )
+            # non_nan == 0 means block was correctly nulled by aggregate_all()
+
     valid = len(errors) == 0
 
     # ── Build diagnostic table ────────────────────────────────────────────
-    # Each dry-season block should ideally have 6 months × ~30 days = ~181 days.
-    # We estimate completeness from the number of non-NaN values in the
-    # first station column.
-    stns = dry_df.columns.tolist()
-
     lines = []
-    lines.append("=" * 62)
+    lines.append("=" * 68)
     lines.append("  Dry-Season Hydrological Year Validation")
-    lines.append("=" * 62)
-    lines.append(f"  Blocks found : {n_blocks}")
-    lines.append(f"  Years range  : {years_sorted[0] if years_sorted else 'n/a'}"
-                 f" – {years_sorted[-1] if years_sorted else 'n/a'}")
-    lines.append(f"  Status       : {'PASS' if valid else 'FAIL'}")
-    lines.append("-" * 62)
-    lines.append(f"  {'HydroYear':>10}  {'N_stations':>10}  {'NonNaN_stns':>12}  {'Status':>8}")
-    lines.append("-" * 62)
+    lines.append("=" * 68)
+
+    # Count full (non-NaN) blocks
+    full_years = []
+    excl_years = []
+    for y in years_sorted:
+        row_mask = dry_df.index.year == y
+        sub      = dry_df.loc[row_mask]
+        nn = int(sub[stns].notna().any(axis=0).sum()) if len(sub) > 0 and stns else 0
+        if nn > 0:
+            full_years.append(y)
+        else:
+            excl_years.append(y)
+
+    lines.append(f"  Total blocks  : {n_blocks}  "
+                 f"(full: {len(full_years)}, excluded: {len(excl_years)})")
+    lines.append(f"  Full range    : {full_years[0] if full_years else 'n/a'}"
+                 f" – {full_years[-1] if full_years else 'n/a'}")
+    lines.append(f"  Excluded      : {excl_years if excl_years else 'none'}")
+    lines.append(f"  Status        : {'PASS' if valid else 'FAIL'}")
+    lines.append("-" * 68)
+    lines.append(f"  {'HydroYear':>10}  {'N_rows':>7}  {'NonNaN_stns':>12}  {'Status':>8}")
+    lines.append("-" * 68)
 
     for y in years_sorted:
         row_mask = dry_df.index.year == y
         sub      = dry_df.loc[row_mask]
-        n_vals   = sub.shape[0]   # number of date-rows for this year (should be 1)
-        # Count stations with non-NaN totals
+        n_vals   = sub.shape[0]
         if n_vals > 0 and stns:
             non_nan = int(sub[stns].notna().any(axis=0).sum())
         else:
             non_nan = 0
-        pct      = f"{non_nan}/{len(stns)}" if stns else "n/a"
-        status   = "OK"
-        lines.append(f"  {y:>10}  {n_vals:>10}  {pct:>12}  {status:>8}")
+        pct    = f"{non_nan}/{len(stns)}" if stns else "n/a"
+        status = "OK" if non_nan > 0 else "EXCL"
+        lines.append(f"  {y:>10}  {n_vals:>7}  {pct:>12}  {status:>8}")
 
-    lines.append("-" * 62)
+    lines.append("-" * 68)
     if errors:
         lines.append("  ERRORS:")
         for err in errors:
             lines.append(f"    • {err}")
     else:
         lines.append("  All checks passed.")
-    lines.append("=" * 62)
+    lines.append("=" * 68)
 
     diag_text = "\n".join(lines)
     print(diag_text)
