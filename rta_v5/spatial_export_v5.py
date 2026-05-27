@@ -357,13 +357,13 @@ def write_validation_excel(
     all_metrics: dict[str, dict],
     out_dir:     Path,
 ) -> None:
-    """Write LOOCV.xlsx and Interpolation_Comparison.xlsx to out_dir/validation/."""
-    val_dir = Path(out_dir) / "validation"
-    val_dir.mkdir(parents=True, exist_ok=True)
+    """Write LOOCV.xlsx and Interpolation_Comparison.xlsx directly to out_dir."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     # LOOCV.xlsx
     df_loocv = pd.DataFrame(loocv_rows)
-    p1 = val_dir / "LOOCV.xlsx"
+    p1 = out_dir / "LOOCV.xlsx"
     df_loocv.to_excel(p1, index=False)
     print(f"    ✓ {p1.name}")
 
@@ -372,6 +372,6 @@ def write_validation_excel(
     if ann:
         rows = [{"Method": m, **met} for m, met in ann.items()]
         df_cmp = pd.DataFrame(rows).set_index("Method")
-        p2 = val_dir / "Interpolation_Comparison.xlsx"
+        p2 = out_dir / "Interpolation_Comparison.xlsx"
         df_cmp.to_excel(p2)
         print(f"    ✓ {p2.name}")

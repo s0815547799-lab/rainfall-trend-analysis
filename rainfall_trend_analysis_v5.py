@@ -8,15 +8,18 @@ READS  (no statistical recomputation):
   data/stations.csv                         — station_id, lat, lon, altitude
 
 WRITES:
-  results/final_N33_v5/publication_maps_v5/
-    Fig_Q1_SpatialTrend_v5.{png,tif,pdf,svg}       Annual
-    Fig_Q1_SpatialTrend_v5_Wet.{png,tif,pdf,svg}   Wet season
-    Fig_Q1_SpatialTrend_v5_Dry.{png,tif,pdf,svg}   Dry season
-    Fig_Metadata_Q1.txt
-    validation/LOOCV.xlsx
-    validation/Interpolation_Comparison.xlsx
-    docs/Boundary_Config_v5.md
-    docs/Spatial_Methods_Q1_v5.md
+  results/final_N33_v5/
+    publication_maps/
+      Fig_Q1_SpatialTrend_v5.{png,tif,pdf,svg}       Annual
+      Fig_Q1_SpatialTrend_v5_Wet.{png,tif,pdf,svg}   Wet season
+      Fig_Q1_SpatialTrend_v5_Dry.{png,tif,pdf,svg}   Dry season
+      Fig_Metadata_Q1.txt
+    validation/
+      LOOCV.xlsx
+      Interpolation_Comparison.xlsx
+    manuscript/
+      Boundary_Config_v5.md
+      Spatial_Methods_Q1_v5.md
 
 SAFETY:
   v4 files and results/final_N33/ are untouched.
@@ -37,7 +40,10 @@ ROOT          = Path(__file__).parent
 BOUNDARY_DIR  = ROOT / "boundaries" / "current_boundary"
 STATIONS_CSV  = ROOT / "data" / "stations.csv"
 FINAL_N33     = ROOT / "results" / "final_N33"
-OUT_BASE      = ROOT / "results" / "final_N33_v5" / "publication_maps_v5"
+V5_ROOT       = ROOT / "results" / "final_N33_v5"
+PUB_DIR       = V5_ROOT / "publication_maps"
+VAL_DIR       = V5_ROOT / "validation"
+MAN_DIR       = V5_ROOT / "manuscript"
 PERIOD        = "1981–2014"
 DPI           = 600
 
@@ -69,7 +75,9 @@ if errors:
 print(f"\n  Boundary : {BOUNDARY_DIR}")
 print(f"  Stations : {STATIONS_CSV.name}")
 print(f"  Excel    : {EXCEL_PATH.name}")
-print(f"  Output   : {OUT_BASE}")
+print(f"  Maps     : {PUB_DIR}")
+print(f"  Validation: {VAL_DIR}")
+print(f"  Manuscript: {MAN_DIR}")
 print()
 
 # ── Load inputs ───────────────────────────────────────────────────────────────
@@ -132,7 +140,7 @@ for scale, suffix in _SCALE_SUFFIX.items():
         comp4_df     = comp4_df,
         coords_df    = coords_df,
         boundary_dir = BOUNDARY_DIR,
-        out_dir      = OUT_BASE,
+        out_dir      = PUB_DIR,
         stem         = stem,
         period       = PERIOD,
         scale_key    = scale,
@@ -147,14 +155,13 @@ _annual_cmp = _method_cmp.get("Annual (Jan–Dec)", {})
 
 # ── Validation Excel ──────────────────────────────────────────────────────────
 print("\n── Validation tables ────────────────────────────────────────────────")
-write_validation_excel(all_loocv_rows, {"Annual (Jan–Dec)": _annual_cmp}, OUT_BASE)
+write_validation_excel(all_loocv_rows, {"Annual (Jan–Dec)": _annual_cmp}, VAL_DIR)
 
 # ── Documentation ─────────────────────────────────────────────────────────────
 print("\n── Documentation ────────────────────────────────────────────────────")
-docs_dir = OUT_BASE / "docs"
-write_boundary_config(docs_dir)
+write_boundary_config(MAN_DIR)
 write_spatial_methods(
-    out_dir      = docs_dir,
+    out_dir      = MAN_DIR,
     loocv_rows   = all_loocv_rows,
     best_methods = best_methods_fig,
     all_metrics  = _annual_cmp,
@@ -169,7 +176,7 @@ polys = load_boundary(BOUNDARY_DIR)
 field_sig_df = load_field_sig(str(EXCEL_PATH))
 
 write_fig_metadata(
-    out_dir      = OUT_BASE,
+    out_dir      = PUB_DIR,
     stem         = _STEM_BASE,
     loocv_rows   = all_loocv_rows,
     best_methods = best_methods_fig,
@@ -185,5 +192,8 @@ write_fig_metadata(
 # ── Summary ───────────────────────────────────────────────────────────────────
 print("\n" + "=" * 68)
 print("  v5 complete.")
-print(f"  Output: {OUT_BASE}")
+print(f"  results/final_N33_v5/")
+print(f"    publication_maps/  {PUB_DIR}")
+print(f"    validation/        {VAL_DIR}")
+print(f"    manuscript/        {MAN_DIR}")
 print("=" * 68)
