@@ -2,6 +2,12 @@
 rta_v5.spatial_layout_v5 — Figure layout constants, color palette, font
 setup, and cartographic decoration helpers for Q1 spatial maps.
 
+v5.1 refinements (in-place):
+  • constrained_layout — automatic tight spacing, no manual margin params
+  • Per-panel inset colorbars replace shared global colorbar axes
+  • build_axes() returns 5 map axes only (no colorbar axes)
+  • Geographic aspect-aware figure scaling
+
 All layout parameters live here so any figure change requires editing
 only this file.
 """
@@ -40,42 +46,28 @@ Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
 
 # ── Layout specification ──────────────────────────────────────────────────────
 #
-# Figure: 11 × 13 inches
-# Maps:   3-row × 4-col gridspec
+# Figure: 11 × 12.5 inches  (constrained_layout handles all internal spacing)
+# Maps:   3-row × 4-col GridSpec — constrained_layout, no explicit margins
 #           Row 0: (a) cols 0:2,  (b) cols 2:4
 #           Row 1: (c) cols 0:2,  (d) cols 2:4
 #           Row 2: (e) cols 1:3   ← exactly centred
-# Cbars:  1-row × 2-col gridspec below maps
-#           Left:  Z colorbar  (equal width = half figure)
-#           Right: Slope cbar  (equal width = half figure)
+# Colorbars: per-panel inset axes (lower-right of each panel)
 #
 LAYOUT = {
     "fig_w":     11.0,      # inches
-    "fig_h":     13.0,      # inches
+    "fig_h":     12.5,      # inches — tighter than v5's 13.0
     "dpi":       600,
-    # Map gridspec
-    "map_left":  0.062,
-    "map_right": 0.972,
-    "map_top":   0.960,
-    "map_bottom":0.130,
-    "hspace":    0.155,
-    "wspace":    0.090,
-    # Colorbar gridspec
-    "cb_left":   0.075,
-    "cb_right":  0.955,
-    "cb_top":    0.100,
-    "cb_bottom": 0.038,
-    "cb_wspace": 0.24,
     # Station marker
     "stn_size":  60,
     # Province outline
     "poly_lw":   0.70,
     "poly_color":"#222222",
+    # Inset colorbar geometry  (axes-fraction units for ax.inset_axes)
+    "cbar_x0":   0.695,     # left edge
+    "cbar_y0":   0.030,     # bottom edge
+    "cbar_w":    0.275,     # width
+    "cbar_h":    0.056,     # height
 }
-
-# Canvas efficiency (informational, enforced by layout values above):
-# Maps:  (map_top - map_bottom) × fig_h = 10.8 in = 83 % of 13 in
-# After removing hspace gaps ≈ 86 % effective
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -84,43 +76,27 @@ LAYOUT = {
 
 def build_axes(fig):
     """
-    Build the 5-panel map axes + 2 colorbar axes using two GridSpecs.
+    Build the 5-panel map axes using a constrained-layout GridSpec.
+
+    The figure must be created with constrained_layout=True.
+    Per-panel inset colorbars are added by the caller via ax.inset_axes().
 
     Returns
     -------
-    ax_a, ax_b, ax_c, ax_d, ax_e : map axes
-    ax_cz, ax_cs                  : colorbar axes (Z, slope)
+    ax_a, ax_b, ax_c, ax_d, ax_e : map axes (no colorbar axes)
     """
     from matplotlib.gridspec import GridSpec
 
-    L = LAYOUT
+    # No explicit left/right/top/bottom — constrained_layout handles spacing.
+    # Row 2 is 5 % taller so panel (e) is slightly enlarged when centred.
+    gs = GridSpec(3, 4, figure=fig, height_ratios=[1, 1, 1.05])
+    ax_a = fig.add_subplot(gs[0, 0:2])
+    ax_b = fig.add_subplot(gs[0, 2:4])
+    ax_c = fig.add_subplot(gs[1, 0:2])
+    ax_d = fig.add_subplot(gs[1, 2:4])
+    ax_e = fig.add_subplot(gs[2, 1:3])   # centred: cols 1–2 of 4
 
-    # 3-row × 4-col map grid
-    gs_m = GridSpec(
-        3, 4,
-        left=L["map_left"], right=L["map_right"],
-        top=L["map_top"],   bottom=L["map_bottom"],
-        hspace=L["hspace"], wspace=L["wspace"],
-        figure=fig,
-    )
-    ax_a = fig.add_subplot(gs_m[0, 0:2])
-    ax_b = fig.add_subplot(gs_m[0, 2:4])
-    ax_c = fig.add_subplot(gs_m[1, 0:2])
-    ax_d = fig.add_subplot(gs_m[1, 2:4])
-    ax_e = fig.add_subplot(gs_m[2, 1:3])   # centred: cols 1–2 of 4
-
-    # 1-row × 2-col colorbar grid
-    gs_c = GridSpec(
-        1, 2,
-        left=L["cb_left"], right=L["cb_right"],
-        top=L["cb_top"],   bottom=L["cb_bottom"],
-        wspace=L["cb_wspace"],
-        figure=fig,
-    )
-    ax_cz = fig.add_subplot(gs_c[0, 0])   # Z colorbar (left = equal width)
-    ax_cs = fig.add_subplot(gs_c[0, 1])   # slope colorbar (right = equal width)
-
-    return ax_a, ax_b, ax_c, ax_d, ax_e, ax_cz, ax_cs
+    return ax_a, ax_b, ax_c, ax_d, ax_e
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -173,7 +149,7 @@ def panel_letter(ax, letter: str, fontsize: float = 10.0) -> None:
 
 def format_map_axes(ax, xmin: float, xmax: float,
                     ymin: float, ymax: float) -> None:
-    """Apply consistent tick formatting to a map axes."""
+    """Apply consistent tick formatting and geographic aspect to a map axes."""
     lon_ticks = np.arange(np.ceil(xmin  / 0.5) * 0.5, xmax + 0.001, 0.5)
     lat_ticks = np.arange(np.ceil(ymin  / 0.5) * 0.5, ymax + 0.001, 0.5)
     ax.set_xticks(lon_ticks)
@@ -188,3 +164,6 @@ def format_map_axes(ax, xmin: float, xmax: float,
     for spine in ("left", "bottom"):
         ax.spines[spine].set_linewidth(0.5)
     ax.set_facecolor("white")
+    # Province-shape-aware aspect: 1 km east = 1 km north
+    lat_c = (ymin + ymax) / 2.0
+    ax.set_aspect(1.0 / np.cos(np.radians(lat_c)))

@@ -1,0 +1,59 @@
+======================================================================
+  SPATIAL TREND ANALYSIS — Q1 PUBLICATION METADATA
+  Generated: 2026-05-27 17:08
+======================================================================
+
+BOUNDARY
+  Source  : boundaries/current_boundary/boundary.shp
+  Polygons: 8
+  Stations: 12
+  Period  : 1981–2014
+
+INTERPOLATION METHOD  (selected per scale by LOOCV RMSE: IDW vs RBF)
+  Annual (Jan–Dec)              : RBF
+  Wet Season (May–Oct)          : IDW
+  Dry Season (Nov–Apr)          : RBF
+
+IDW vs RBF COMPARISON  (reference variable: MMK_Z, annual)
+  IDW   : RMSE=1.0837  MAE=0.9148  Bias=-0.1165  R²=-0.2591
+  RBF   : RMSE=1.0484  MAE=0.8646  Bias=-0.0482  R²=-0.1784
+
+LOOCV METRICS  (Leave-One-Out Cross-Validation)
+  Scale                          Variable     Method    RMSE     MAE     Bias      R²
+  ----------------------------------------------------------------
+  Annual (Jan–Dec)               MK_Z         RBF    1.0771  0.8898  -0.0441 -0.1839
+  Annual (Jan–Dec)               MMK_Z        RBF    1.0484  0.8646  -0.0482 -0.1784
+  Annual (Jan–Dec)               PW_Z         RBF    0.9610  0.7920  -0.0578 -0.1352
+  Annual (Jan–Dec)               TFPW_Z       RBF    1.0196  0.8322  -0.0571 -0.1429
+  Annual (Jan–Dec)               Sen_Slope    RBF    5.0469  3.7344  -0.2296 -0.4344
+  Wet Season (May–Oct)           MK_Z         IDW    1.1101  0.8320  -0.2396 -0.1635
+  Wet Season (May–Oct)           MMK_Z        IDW    1.0014  0.7038  -0.1886 -0.3824
+  Wet Season (May–Oct)           PW_Z         IDW    0.9549  0.6470  -0.1257 -0.6584
+  Wet Season (May–Oct)           TFPW_Z       IDW    1.1654  0.9089  -0.2671 -0.0795
+  Wet Season (May–Oct)           Sen_Slope    IDW    3.7894  2.8504  -0.6684 -0.1345
+  Dry Season (Nov–Apr)           MK_Z         RBF    0.9279  0.6924   0.0302  0.3458
+  Dry Season (Nov–Apr)           MMK_Z        RBF    0.8120  0.6363   0.0120  0.4078
+  Dry Season (Nov–Apr)           PW_Z         RBF    0.7920  0.6207   0.0138  0.2329
+  Dry Season (Nov–Apr)           TFPW_Z       RBF    0.9279  0.6924   0.0302  0.3458
+  Dry Season (Nov–Apr)           Sen_Slope    RBF    1.6426  1.3440   0.1044  0.5364
+
+FIELD SIGNIFICANCE  (Walker 1914 + Livezey-Chen MC)
+  annual                        : N_sig=1/12  Walker_p=0.4596  LC_p=0.4364
+  wet                           : N_sig=0/12  Walker_p=0.1184  LC_p=0.0991
+  dry                           : N_sig=3/12  Walker_p=0.0196  LC_p=0.0160
+
+FIGURE DESIGN
+  Layout      : 5-panel (2+2+1, panel (e) exactly centred)
+  Colormap Z  : RdBu_r,  vmin=-2.6,  vmax=2.6
+  Colormap S  : RdYlGn,  symmetric ±max(|slope|)
+  DPI         : 600
+  Formats     : PNG, TIFF (LZW), PDF, SVG
+  Font        : Times New Roman / DejaVu Serif (serif)
+  Grid        : 120×120
+
+STATION CLASSIFICATION  (shown in figure caption, not in figure body)
+  ▲ green  — Increasing,  p < 0.05
+  ▼ red    — Decreasing,  p < 0.05
+  ● grey   — Not significant
+
+======================================================================

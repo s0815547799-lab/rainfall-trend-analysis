@@ -4,15 +4,15 @@ rta_v5.spatial_publication_q1_v5 — Refined Q1 publication-grade spatial map.
 5-panel layout:
     (a) Standard MK   │  (b) Modified MK
     (c) PW-MK         │  (d) TFPW-MK
-              (e) Sen's Slope   ← exactly centred
+              (e) Sen's Slope   ← exactly centred, slightly enlarged
 
-Design decisions:
-  • Province boundary from boundary.shp only — no fallback
-  • No legend or metric boxes inside the figure body
-  • One shared Z colorbar (a–d) + one slope colorbar (e), equal width, horizontal
-  • North arrow + scale bar + lat/lon ticks on every panel
-  • Times New Roman / DejaVu Serif serif font throughout
-  • >85 % of canvas occupied by map panels
+v5.1 refinements (in-place):
+  • constrained_layout=True — automatic tight spacing, no manual margins
+  • Per-panel inset colorbars at lower-right of every panel
+  • Single-line panel titles: "(a) Standard MK — Z Statistic"
+  • Geographic aspect via format_map_axes (1/cos(lat_c))
+  • No shared/global colorbar axes
+  • bbox_inches='tight' trims excess canvas
 """
 
 from __future__ import annotations
@@ -43,12 +43,12 @@ from .spatial_layout_v5 import (
     LAYOUT, FONT_SERIF,
     C_INC, C_DEC, C_NS, Z_VABS,
     build_axes,
-    north_arrow, scale_bar, panel_letter, format_map_axes,
+    north_arrow, scale_bar, format_map_axes,
 )
 from .spatial_export_v5 import save_formats
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# ── Province outline ──────────────────────────────────────────────────────────
 
 def _draw_province(ax, polys, zorder: int = 5) -> None:
     """Draw all boundary polygons (district outlines → province boundary)."""
@@ -57,6 +57,8 @@ def _draw_province(ax, polys, zorder: int = 5) -> None:
                 color=LAYOUT["poly_color"], lw=LAYOUT["poly_lw"],
                 solid_capstyle="round", zorder=zorder)
 
+
+# ── Interpolation helper ──────────────────────────────────────────────────────
 
 def _interp_masked(pts, vals, xi, gl, mask, method):
     """Interpolate and apply province mask; returns (n,n) float array."""
@@ -73,11 +75,55 @@ def _interp_masked(pts, vals, xi, gl, mask, method):
     return out
 
 
+# ── Inset colorbar ────────────────────────────────────────────────────────────
+
+def _add_inset_cbar(
+    ax,
+    cmap,
+    vmin: float,
+    vmax: float,
+    label: str,
+    ticks: list[float],
+    threshold_lines: list[tuple] | None = None,
+) -> None:
+    """Compact horizontal inset colorbar at lower-right of ax."""
+    L = LAYOUT
+    axins = ax.inset_axes([L["cbar_x0"], L["cbar_y0"], L["cbar_w"], L["cbar_h"]])
+
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    sm   = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+
+    cbar = ax.figure.colorbar(sm, cax=axins, orientation="horizontal")
+    cbar.set_ticks(ticks)
+    cbar.set_label(label, fontsize=5.0, fontfamily=FONT_SERIF, labelpad=1.5)
+    cbar.ax.tick_params(labelsize=4.5, length=2, pad=1.0, width=0.5)
+
+    # Semi-transparent backing so the colorbar reads over any map colour
+    axins.patch.set_facecolor("white")
+    axins.patch.set_alpha(0.83)
+    for sp in axins.spines.values():
+        sp.set_edgecolor("#555555")
+        sp.set_linewidth(0.35)
+
+    # Significance threshold tick-lines on Z-stat colorbars
+    if threshold_lines:
+        for zv, ls in threshold_lines:
+            if vmin < zv < vmax:
+                npos = (zv - vmin) / (vmax - vmin)
+                cbar.ax.axvline(npos, color="#333333", lw=0.65, ls=ls, zorder=5)
+
+
+# ── Single panel renderer ─────────────────────────────────────────────────────
+
 def _draw_panel(
     ax, polys, gl, gt, mask, zz,
     cmap, vmin, vmax,
     lons, lats, z_vals, sig_arr,
-    letter, title,
+    full_title: str,          # "(a) Standard MK — Z Statistic" — never wrapped
+    cb_label: str,
+    cb_ticks: list[float],
+    cb_thresholds: list[tuple] | None,
     xmin, xmax, ymin, ymax,
 ) -> None:
     """Render one map panel: surface + outlines + stations + decorations."""
@@ -92,7 +138,6 @@ def _draw_panel(
         aspect="auto", zorder=1,
     )
 
-    # Province/district outlines
     _draw_province(ax, polys)
 
     # Station markers
@@ -106,14 +151,20 @@ def _draw_panel(
         ax.scatter(lon, lat, marker=marker, s=LAYOUT["stn_size"],
                    c=fc, edgecolors="white", linewidths=0.4, zorder=7)
 
-    # Cartographic decorations
     north_arrow(ax)
     scale_bar(ax, xmin, xmax, ymin, ymax, km=25)
-    panel_letter(ax, letter)
 
-    # Title and axes
-    ax.set_title(title, fontsize=8, pad=3.5, fontfamily=FONT_SERIF)
+    # Single-line title — letter label + description, never split or wrapped
+    ax.set_title(full_title, fontsize=7.5, pad=3.0,
+                 fontfamily=FONT_SERIF, loc="center")
+
+    # Geographic aspect-aware tick formatting (sets 1/cos(lat) aspect)
     format_map_axes(ax, xmin, xmax, ymin, ymax)
+
+    # Per-panel inset colorbar — lower-right, no overlap with north arrow
+    _add_inset_cbar(ax, cmap, vmin, vmax,
+                    label=cb_label, ticks=cb_ticks,
+                    threshold_lines=cb_thresholds)
 
 
 # ── Public figure function ────────────────────────────────────────────────────
@@ -196,17 +247,17 @@ def fig_q1_spatial_trend_v5(
             return loocv(pts[ok_], v[ok_], best_name)
         return {"RMSE": np.nan, "MAE": np.nan, "Bias": np.nan, "R2": np.nan}
 
-    spec = [
-        ("MK_Z",   "MK_sig",   "Standard MK",      "(a)"),
-        ("MMK_Z",  "MMK_sig",  "Mod. MK (H&R98)",  "(b)"),
-        ("PW_Z",   "PW_sig",   "PW-MK",            "(c)"),
-        ("TFPW_Z", "TFPW_sig", "TFPW-MK",          "(d)"),
+    z_spec = [
+        ("MK_Z",   "MK_sig"),
+        ("MMK_Z",  "MMK_sig"),
+        ("PW_Z",   "PW_sig"),
+        ("TFPW_Z", "TFPW_sig"),
     ]
 
     grids: dict[str, np.ndarray] = {}
     sigs:  dict[str, np.ndarray] = {}
 
-    for col, sig_col, _, _ in spec:
+    for col, sig_col in z_spec:
         v = df[col].values.astype(float)
         loocv_rows.append({"Scale": scale_key, "Variable": col,
                            "Method": best_name, **_cv(col, v)})
@@ -221,87 +272,74 @@ def fig_q1_spatial_trend_v5(
     slope_sig      = np.array([str(s) in ("*", "**")
                                 for s in df["MK_sig"].values])
 
-    # ── Colormap bounds ───────────────────────────────────────────────────────
+    # ── Colormap setup ────────────────────────────────────────────────────────
     cmap_z = matplotlib.colormaps["RdBu_r"].copy()
     cmap_z.set_bad("white")
 
     cmap_s = matplotlib.colormaps["RdYlGn"].copy()
     cmap_s.set_bad("white")
-    fin_s  = grids["slope"][mask & np.isfinite(grids["slope"])]
-    slp_abs = float(np.ceil(max(np.abs(fin_s).max() if len(fin_s) else 5, 5) / 5) * 5)
-
-    # ── Figure ────────────────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(LAYOUT["fig_w"], LAYOUT["fig_h"]))
-    ax_a, ax_b, ax_c, ax_d, ax_e, ax_cz, ax_cs = build_axes(fig)
-
-    common = dict(polys=polys, gl=gl, gt=gt, mask=mask,
-                  lons=lons, lats=lats,
-                  xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-
-    _draw_panel(ax_a, cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
-                zz=grids["MK_Z"],   z_vals=df["MK_Z"].values,
-                sig_arr=sigs["MK_Z"],
-                letter="(a)", title="Standard MK — Z Statistic", **common)
-
-    _draw_panel(ax_b, cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
-                zz=grids["MMK_Z"],  z_vals=df["MMK_Z"].values,
-                sig_arr=sigs["MMK_Z"],
-                letter="(b)", title="Modified MK (H&R 1998) — Z Statistic", **common)
-
-    _draw_panel(ax_c, cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
-                zz=grids["PW_Z"],   z_vals=df["PW_Z"].values,
-                sig_arr=sigs["PW_Z"],
-                letter="(c)", title="PW-MK (Yue & Wang 2004) — Z Statistic", **common)
-
-    _draw_panel(ax_d, cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
-                zz=grids["TFPW_Z"], z_vals=df["TFPW_Z"].values,
-                sig_arr=sigs["TFPW_Z"],
-                letter="(d)", title="TFPW-MK (Yue et al. 2002) — Z Statistic", **common)
-
-    _draw_panel(ax_e, cmap=cmap_s, vmin=-slp_abs, vmax=slp_abs,
-                zz=grids["slope"],  z_vals=slope_v,
-                sig_arr=slope_sig,
-                letter="(e)", title="Sen's Slope  (mm yr⁻¹)", **common)
-
-    # ── Z colorbar (shared, left half) ───────────────────────────────────────
-    norm_z = mcolors.Normalize(vmin=-Z_VABS, vmax=Z_VABS)
-    sm_z   = plt.cm.ScalarMappable(cmap=cmap_z, norm=norm_z)
-    sm_z.set_array([])
-    cbar_z = fig.colorbar(sm_z, cax=ax_cz, orientation="horizontal")
-    cbar_z.set_label("Z Statistic  (panels a–d)", fontsize=7.5,
-                     fontfamily=FONT_SERIF)
-    cbar_z.ax.tick_params(labelsize=6.5)
-    # Mark critical thresholds
-    for zv, ls in [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]:
-        if -Z_VABS < zv < Z_VABS:
-            norm_pos = (zv - (-Z_VABS)) / (2 * Z_VABS)
-            cbar_z.ax.axvline(norm_pos, color="#222222", lw=0.85, ls=ls)
-    # Threshold labels
-    cbar_z.ax.text(
-        (1.96 + Z_VABS) / (2 * Z_VABS) + 0.008, 0.5,
-        "±1.96", va="center", fontsize=5.0, color="#333333",
-        transform=cbar_z.ax.transAxes,
+    fin_s   = grids["slope"][mask & np.isfinite(grids["slope"])]
+    slp_abs = float(
+        np.ceil(max(np.abs(fin_s).max() if len(fin_s) else 5, 5) / 5) * 5
     )
 
-    # ── Slope colorbar (right half) ───────────────────────────────────────────
-    norm_s = mcolors.Normalize(vmin=-slp_abs, vmax=slp_abs)
-    sm_s   = plt.cm.ScalarMappable(cmap=cmap_s, norm=norm_s)
-    sm_s.set_array([])
-    cbar_s = fig.colorbar(sm_s, cax=ax_cs, orientation="horizontal")
-    cbar_s.set_label("Sen's Slope  (mm yr⁻¹, panel e)", fontsize=7.5,
-                     fontfamily=FONT_SERIF)
-    cbar_s.ax.tick_params(labelsize=6.5)
+    # Colorbar ticks and ±1.96 / ±2.576 threshold markers
+    z_ticks     = [-Z_VABS, 0.0, Z_VABS]
+    z_thresh    = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
+    slope_ticks = [-slp_abs, 0.0, slp_abs]
 
-    # ── Title (one compact line) ──────────────────────────────────────────────
+    # ── Figure: constrained_layout, 3-row × 4-col ────────────────────────────
+    fig = plt.figure(figsize=(LAYOUT["fig_w"], LAYOUT["fig_h"]),
+                     constrained_layout=True)
+    ax_a, ax_b, ax_c, ax_d, ax_e = build_axes(fig)
+
+    # Shared geographic kwargs
+    geo = dict(polys=polys, gl=gl, gt=gt, mask=mask,
+               lons=lons, lats=lats,
+               xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+    # Shared Z-stat kwargs (panels a–d)
+    z_kw = dict(cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
+                cb_label="Z", cb_ticks=z_ticks, cb_thresholds=z_thresh)
+
+    _draw_panel(ax_a, zz=grids["MK_Z"], z_vals=df["MK_Z"].values,
+                sig_arr=sigs["MK_Z"],
+                full_title="(a) Standard MK — Z Statistic",
+                **geo, **z_kw)
+
+    _draw_panel(ax_b, zz=grids["MMK_Z"], z_vals=df["MMK_Z"].values,
+                sig_arr=sigs["MMK_Z"],
+                full_title="(b) Modified MK (Hamed 1998) — Z Statistic",
+                **geo, **z_kw)
+
+    _draw_panel(ax_c, zz=grids["PW_Z"], z_vals=df["PW_Z"].values,
+                sig_arr=sigs["PW_Z"],
+                full_title="(c) PW-MK (Yue & Wang 2004) — Z Statistic",
+                **geo, **z_kw)
+
+    _draw_panel(ax_d, zz=grids["TFPW_Z"], z_vals=df["TFPW_Z"].values,
+                sig_arr=sigs["TFPW_Z"],
+                full_title="(d) TFPW-MK (Yue et al. 2002) — Z Statistic",
+                **geo, **z_kw)
+
+    _draw_panel(ax_e, zz=grids["slope"], z_vals=slope_v,
+                sig_arr=slope_sig,
+                full_title="(e) Sen's Slope (mm yr⁻¹)",
+                cmap=cmap_s, vmin=-slp_abs, vmax=slp_abs,
+                cb_label="mm yr⁻¹", cb_ticks=slope_ticks,
+                cb_thresholds=None,
+                **geo)
+
+    # ── Suptitle ──────────────────────────────────────────────────────────────
     scale_short = {
-        "Annual (Jan–Dec)":   "Annual (Jan–Dec)",
+        "Annual (Jan–Dec)":     "Annual (Jan–Dec)",
         "Wet Season (May–Oct)": "Wet Season (May–Oct)",
         "Dry Season (Nov–Apr)": "Dry Season (Nov–Apr)",
     }.get(scale_key, scale_key)
 
     fig.suptitle(
         f"Spatial Rainfall Trend Distribution — {scale_short}  |  {period}",
-        fontsize=9.5, fontfamily=FONT_SERIF, y=0.981,
+        fontsize=9.5, fontfamily=FONT_SERIF,
     )
 
     # ── Save ──────────────────────────────────────────────────────────────────
