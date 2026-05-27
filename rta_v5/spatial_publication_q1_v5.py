@@ -1,19 +1,20 @@
 """
 rta_v5.spatial_publication_q1_v5 — Refined Q1 publication-grade spatial map.
 
-5-panel asymmetric layout (3×2 grid):
-    (a) Standard MK      │  (b) Modified MK
-    (c) PW-MK            │  (e) Sen's Slope
-    (d) TFPW-MK          │  (empty — intentional)
+5-panel layout — original balanced arrangement (3×4 GridSpec):
+    (a) Standard MK   │  (b) Modified MK
+    (c) PW-MK         │  (d) TFPW-MK
+              (e) Sen's Slope   ← lower-right, cols 2:4
 
 v5.2 refinements (in-place):
-  • constrained_layout=False; explicit GridSpec(3,2) with hspace/wspace
-  • bbox_inches='tight', pad_inches=0.04 — aggressive canvas trim
+  • constrained_layout=False; explicit GridSpec with bottom=0.16 margin
+  • Shared horizontal Z-stat colorbar + shared Sen slope colorbar at bottom
+  • Trend classification legend (▲ ▼ ● with significance labels)
+  • Interpolation metadata text (method, grid, mask)
+  • bbox_inches='tight', pad_inches=0.04
   • Station markers: red ^ = increase, blue v = decrease (matches RdBu_r)
-  • Per-panel inset colorbars at lower-right of every panel
-  • Single-line panel titles: "(a) Standard MK — Z Statistic"
-  • Geographic aspect via format_map_axes (1/cos(lat_c))
-  • No shared/global colorbar axes
+  • Single-line panel titles
+  • Geographic aspect via format_map_axes
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.lines import Line2D
 
 from .spatial_interpolation_v5 import (
     load_boundary,
@@ -126,6 +128,7 @@ def _draw_panel(
     cb_ticks: list[float],
     cb_thresholds: list[tuple] | None,
     xmin, xmax, ymin, ymax,
+    draw_inset_cbar: bool = True,
 ) -> None:
     """Render one map panel: surface + outlines + stations + decorations."""
     # Background surface
@@ -141,7 +144,7 @@ def _draw_panel(
 
     _draw_province(ax, polys)
 
-    # Station markers
+    # Station markers — size ∝ |z|, colour = direction × significance
     for lon, lat, z, sig in zip(lons, lats, z_vals, sig_arr):
         if np.isnan(z):
             continue
@@ -155,17 +158,16 @@ def _draw_panel(
     north_arrow(ax)
     scale_bar(ax, xmin, xmax, ymin, ymax, km=25)
 
-    # Single-line title — letter label + description, never split or wrapped
     ax.set_title(full_title, fontsize=7.5, pad=3.0,
                  fontfamily=FONT_SERIF, loc="center")
 
-    # Geographic aspect-aware tick formatting (sets 1/cos(lat) aspect)
     format_map_axes(ax, xmin, xmax, ymin, ymax)
 
-    # Per-panel inset colorbar — lower-right, no overlap with north arrow
-    _add_inset_cbar(ax, cmap, vmin, vmax,
-                    label=cb_label, ticks=cb_ticks,
-                    threshold_lines=cb_thresholds)
+    # Per-panel inset colorbar — used by comparison/single figures only
+    if draw_inset_cbar:
+        _add_inset_cbar(ax, cmap, vmin, vmax,
+                        label=cb_label, ticks=cb_ticks,
+                        threshold_lines=cb_thresholds)
 
 
 # ── Public figure function ────────────────────────────────────────────────────
@@ -289,7 +291,7 @@ def fig_q1_spatial_trend_v5(
     z_thresh    = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
     slope_ticks = [-slp_abs, 0.0, slp_abs]
 
-    # ── Figure: 3-row × 2-col asymmetric, explicit GridSpec ──────────────────
+    # ── Figure: original balanced 3×4 GridSpec, constrained_layout=False ─────
     fig = plt.figure(figsize=(LAYOUT["fig_w"], LAYOUT["fig_h"]),
                      constrained_layout=False)
     ax_a, ax_b, ax_c, ax_d, ax_e = build_axes(fig)
@@ -299,9 +301,10 @@ def fig_q1_spatial_trend_v5(
                lons=lons, lats=lats,
                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
-    # Shared Z-stat kwargs (panels a–d)
+    # Shared Z-stat kwargs — draw_inset_cbar=False; shared cbar added below
     z_kw = dict(cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
-                cb_label="Z", cb_ticks=z_ticks, cb_thresholds=z_thresh)
+                cb_label="Z", cb_ticks=z_ticks, cb_thresholds=z_thresh,
+                draw_inset_cbar=False)
 
     _draw_panel(ax_a, zz=grids["MK_Z"], z_vals=df["MK_Z"].values,
                 sig_arr=sigs["MK_Z"],
@@ -329,6 +332,7 @@ def fig_q1_spatial_trend_v5(
                 cmap=cmap_s, vmin=-slp_abs, vmax=slp_abs,
                 cb_label="mm yr⁻¹", cb_ticks=slope_ticks,
                 cb_thresholds=None,
+                draw_inset_cbar=False,
                 **geo)
 
     # ── Suptitle ──────────────────────────────────────────────────────────────
@@ -340,7 +344,71 @@ def fig_q1_spatial_trend_v5(
 
     fig.suptitle(
         f"Spatial Rainfall Trend Distribution — {scale_short}  |  {period}",
-        fontsize=9.5, fontfamily=FONT_SERIF,
+        fontsize=9.5, fontfamily=FONT_SERIF, y=0.975,
+    )
+
+    # ── Shared colorbars (bottom margin, below GridSpec bottom=0.16) ──────────
+    L = LAYOUT
+
+    # Z-statistic colorbar — covers panels (a)–(d)
+    cbar_z_ax = fig.add_axes([L["sbar_z_x"], L["sbar_y"],
+                               L["sbar_z_w"], L["sbar_h"]])
+    norm_z = mcolors.Normalize(vmin=-Z_VABS, vmax=Z_VABS)
+    sm_z   = plt.cm.ScalarMappable(cmap=cmap_z, norm=norm_z)
+    sm_z.set_array([])
+    cbar_z = fig.colorbar(sm_z, cax=cbar_z_ax, orientation="horizontal")
+    cbar_z.set_ticks(z_ticks)
+    cbar_z.set_label("Z Statistic (MK / MMK / PW / TFPW)",
+                     fontsize=6.0, fontfamily=FONT_SERIF, labelpad=2)
+    cbar_z.ax.tick_params(labelsize=5.0, length=2, pad=1.0, width=0.5)
+    for zv, ls in z_thresh:
+        if -Z_VABS < zv < Z_VABS:
+            npos = (zv - (-Z_VABS)) / (2 * Z_VABS)
+            cbar_z_ax.axvline(npos, color="#333333", lw=0.6, ls=ls, zorder=5)
+
+    # Sen's slope colorbar — covers panel (e)
+    cbar_s_ax = fig.add_axes([L["sbar_s_x"], L["sbar_y"],
+                               L["sbar_s_w"], L["sbar_h"]])
+    norm_s = mcolors.Normalize(vmin=-slp_abs, vmax=slp_abs)
+    sm_s   = plt.cm.ScalarMappable(cmap=cmap_s, norm=norm_s)
+    sm_s.set_array([])
+    cbar_s = fig.colorbar(sm_s, cax=cbar_s_ax, orientation="horizontal")
+    cbar_s.set_ticks(slope_ticks)
+    cbar_s.set_ticklabels([f"{v:.1f}" for v in slope_ticks])
+    cbar_s.set_label("Sen's Slope (mm yr⁻¹)",
+                     fontsize=6.0, fontfamily=FONT_SERIF, labelpad=2)
+    cbar_s.ax.tick_params(labelsize=5.0, length=2, pad=1.0, width=0.5)
+
+    # ── Trend classification legend ───────────────────────────────────────────
+    legend_handles = [
+        Line2D([0], [0], marker="^", linestyle="none",
+               markerfacecolor=C_INC, markeredgecolor="white",
+               markersize=6, label="Increasing  (p < 0.05)"),
+        Line2D([0], [0], marker="v", linestyle="none",
+               markerfacecolor=C_DEC, markeredgecolor="white",
+               markersize=6, label="Decreasing  (p < 0.05)"),
+        Line2D([0], [0], marker="o", linestyle="none",
+               markerfacecolor=C_NS,  markeredgecolor="white",
+               markersize=6, label="Not significant"),
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="lower left",
+        bbox_to_anchor=(L["sbar_z_x"], L["sbar_y"] + L["sbar_h"] + 0.018),
+        bbox_transform=fig.transFigure,
+        ncol=3, fontsize=5.5, framealpha=0.88,
+        edgecolor="#999999", handletextpad=0.4, columnspacing=1.0,
+        handlelength=1.0,
+    )
+
+    # ── Interpolation metadata text ───────────────────────────────────────────
+    fig.text(
+        L["sbar_z_x"],
+        L["sbar_y"] - 0.032,
+        f"Spatial interpolation: {best_name}  |  Grid: {GRID_N}×{GRID_N}  "
+        f"|  Boundary mask: province polygon",
+        fontsize=5.0, color="#555555",
+        fontfamily=FONT_SERIF,
     )
 
     # ── Save ──────────────────────────────────────────────────────────────────
