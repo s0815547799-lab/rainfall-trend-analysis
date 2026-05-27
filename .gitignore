@@ -3,6 +3,29 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Pipeline runtime outputs (generated on each run, not version-controlled)
+Output_TrendV2_*/
+Output_TrendV4_*/
+Output_TrendV2_*.png
+Output_TrendV2_*.pdf
+Output_TrendV2_*.xlsx
+Output_TrendV2_*.md
+Output_TrendV4_*.png
+Output_TrendV4_*.pdf
+Output_TrendV4_*.xlsx
+Output_TrendV4_*.md
+Output_TrendV4_*.txt
+
+# Checkpoint / resume files
+checkpoints/
+
+# Validation working directories
+baseline_v3/
+validation_v4/
+
+# Synthetic test data (not real station data)
+rainfall_data.csv
+
 # C extensions
 *.so
 
