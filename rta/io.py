@@ -251,7 +251,7 @@ def load_coords(folder: str) -> "dict | None":
     coord_file = sorted(candidates)[0]
 
     try:
-        df = pd.read_csv(coord_file)
+        df = pd.read_csv(coord_file, dtype=str)
     except Exception:
         return None
 
