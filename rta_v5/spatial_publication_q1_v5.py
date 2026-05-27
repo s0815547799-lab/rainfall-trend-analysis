@@ -46,7 +46,7 @@ from .spatial_layout_v5 import (
     LAYOUT, FONT_SERIF,
     C_INC, C_DEC, C_NS, Z_VABS,
     build_axes, build_axes_compare, build_axes_single, build_row_layout,
-    north_arrow, scale_bar, format_map_axes,
+    north_arrow, scale_bar, panel_letter, format_map_axes,
 )
 from .spatial_export_v5 import save_formats
 
@@ -117,6 +117,41 @@ def _add_inset_cbar(
                 cbar.ax.axvline(npos, color="#333333", lw=0.65, ls=ls, zorder=5)
 
 
+# ── Shared figure-level annotation helpers ────────────────────────────────────
+
+def _add_figure_legend(fig, x0: float = 0.07, y0: float = 0.01) -> None:
+    """Trend classification legend at figure bottom-left (shared by all figure types)."""
+    handles = [
+        Line2D([0], [0], marker="^", linestyle="none",
+               markerfacecolor=C_INC, markeredgecolor="white",
+               markersize=6, label="Increasing  (p < 0.05)"),
+        Line2D([0], [0], marker="v", linestyle="none",
+               markerfacecolor=C_DEC, markeredgecolor="white",
+               markersize=6, label="Decreasing  (p < 0.05)"),
+        Line2D([0], [0], marker="o", linestyle="none",
+               markerfacecolor=C_NS, markeredgecolor="white",
+               markersize=6, label="Not significant"),
+    ]
+    fig.legend(
+        handles=handles, loc="lower left",
+        bbox_to_anchor=(x0, y0), bbox_transform=fig.transFigure,
+        ncol=3, fontsize=5.5, framealpha=0.88,
+        edgecolor="#999999", handletextpad=0.4,
+        columnspacing=1.0, handlelength=1.0,
+    )
+
+
+def _add_figure_metadata(fig, method_name: str,
+                         x1: float = 0.97, y0: float = 0.01) -> None:
+    """Compact interpolation method/grid text at figure bottom-right."""
+    fig.text(
+        x1, y0,
+        f"Method: {method_name}  |  Grid: {GRID_N}×{GRID_N}",
+        fontsize=4.5, color="#666666",
+        fontfamily=FONT_SERIF, ha="right",
+    )
+
+
 # ── Single panel renderer ─────────────────────────────────────────────────────
 
 def _draw_panel(
@@ -129,9 +164,22 @@ def _draw_panel(
     cb_thresholds: list[tuple] | None,
     xmin, xmax, ymin, ymax,
     draw_inset_cbar: bool = True,
+    station_ids: list | None = None,
 ) -> None:
-    """Render one map panel: surface + outlines + stations + decorations."""
-    # Background surface
+    """
+    Render one map panel: raster surface → province outlines → station
+    markers + labels → cartographic decorations → inset colorbar.
+
+    z-order hierarchy:
+        1  raster (imshow)
+        5  province/district outlines
+        7  station markers
+        8  station ID labels
+        9  scale bar
+       10  north arrow
+       11  panel letter (via inset_axes — not used here; letter is in full_title)
+    """
+    # ── Raster interpolation surface ─────────────────────────────────────────
     zz_ma = np.ma.array(zz, mask=~mask)
     ax.imshow(
         zz_ma,
@@ -142,9 +190,10 @@ def _draw_panel(
         aspect="auto", zorder=1,
     )
 
+    # ── Province + district outlines ─────────────────────────────────────────
     _draw_province(ax, polys)
 
-    # Station markers — size ∝ |z|, colour = direction × significance
+    # ── Station markers — colour = direction × significance ──────────────────
     for lon, lat, z, sig in zip(lons, lats, z_vals, sig_arr):
         if np.isnan(z):
             continue
@@ -155,6 +204,19 @@ def _draw_panel(
         ax.scatter(lon, lat, marker=marker, s=LAYOUT["stn_size"],
                    c=fc, edgecolors="white", linewidths=0.4, zorder=7)
 
+    # ── Station ID labels — small text offset from marker centre ─────────────
+    if station_ids is not None:
+        for stn_id, lon, lat in zip(station_ids, lons, lats):
+            ax.annotate(
+                str(stn_id)[-3:],   # last 3 chars — compact station code
+                xy=(lon, lat), xytext=(4, 4), textcoords="offset points",
+                fontsize=3.2, color="#111111", zorder=8,
+                fontfamily=FONT_SERIF,
+                bbox=dict(boxstyle="square,pad=0.05",
+                          fc="white", ec="none", alpha=0.7),
+            )
+
+    # ── Cartographic decorations ─────────────────────────────────────────────
     north_arrow(ax)
     scale_bar(ax, xmin, xmax, ymin, ymax, km=25)
 
@@ -163,7 +225,7 @@ def _draw_panel(
 
     format_map_axes(ax, xmin, xmax, ymin, ymax)
 
-    # Per-panel inset colorbar — used by comparison/single figures only
+    # ── Per-panel inset colorbar ─────────────────────────────────────────────
     if draw_inset_cbar:
         _add_inset_cbar(ax, cmap, vmin, vmax,
                         label=cb_label, ticks=cb_ticks,
@@ -296,9 +358,10 @@ def fig_q1_spatial_trend_v5(
                      constrained_layout=False)
     ax_a, ax_b, ax_c, ax_d, ax_e = build_axes(fig)
 
-    # Shared geographic kwargs
+    # Shared geographic kwargs (station_ids → labels rendered inside every panel)
     geo = dict(polys=polys, gl=gl, gt=gt, mask=mask,
                lons=lons, lats=lats,
+               station_ids=stns,
                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
     # Z-stat kwargs — per-panel inset colorbars (draw_inset_cbar=True default)
@@ -345,35 +408,9 @@ def fig_q1_spatial_trend_v5(
         fontsize=9.5, fontfamily=FONT_SERIF, y=0.975,
     )
 
-    # ── Trend classification legend — compact, bottom-left of figure ─────────
-    legend_handles = [
-        Line2D([0], [0], marker="^", linestyle="none",
-               markerfacecolor=C_INC, markeredgecolor="white",
-               markersize=6, label="Increasing  (p < 0.05)"),
-        Line2D([0], [0], marker="v", linestyle="none",
-               markerfacecolor=C_DEC, markeredgecolor="white",
-               markersize=6, label="Decreasing  (p < 0.05)"),
-        Line2D([0], [0], marker="o", linestyle="none",
-               markerfacecolor=C_NS,  markeredgecolor="white",
-               markersize=6, label="Not significant"),
-    ]
-    fig.legend(
-        handles=legend_handles,
-        loc="lower left",
-        bbox_to_anchor=(0.07, 0.01),
-        bbox_transform=fig.transFigure,
-        ncol=3, fontsize=5.5, framealpha=0.88,
-        edgecolor="#999999", handletextpad=0.4,
-        columnspacing=1.0, handlelength=1.0,
-    )
-
-    # ── Interpolation metadata — compact text at bottom-right ─────────────────
-    fig.text(
-        0.97, 0.01,
-        f"Method: {best_name}  |  Grid: {GRID_N}×{GRID_N}",
-        fontsize=4.5, color="#666666",
-        fontfamily=FONT_SERIF, ha="right",
-    )
+    # ── Shared figure-level annotations ─────────────────────────────────────
+    _add_figure_legend(fig, x0=0.07, y0=0.01)
+    _add_figure_metadata(fig, best_name, x1=0.97, y0=0.01)
 
     # ── Save ──────────────────────────────────────────────────────────────────
     out_dir = Path(out_dir)
@@ -450,6 +487,7 @@ def fig_compare_v5(
 
     geo = dict(polys=polys, gl=gl, gt=gt, mask=mask,
                lons=lons, lats=lats,
+               station_ids=stns,
                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
     z_kw = dict(cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
                 cb_label="Z", cb_ticks=z_ticks, cb_thresholds=z_thresh)
@@ -473,6 +511,8 @@ def fig_compare_v5(
         f"Method Comparison — {scale_short}  |  {period}",
         fontsize=9.5, fontfamily=FONT_SERIF,
     )
+    _add_figure_legend(fig, x0=0.07, y0=0.01)
+    _add_figure_metadata(fig, best_name, x1=0.97, y0=0.01)
 
     save_formats(fig, Path(out_dir), stem, dpi)
     plt.close(fig)
@@ -548,6 +588,7 @@ def fig_single_v5(
 
     geo = dict(polys=polys, gl=gl, gt=gt, mask=mask,
                lons=lons, lats=lats,
+               station_ids=stns,
                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
     fig = plt.figure(figsize=(LAYOUT["sgl_fig_w"], LAYOUT["sgl_fig_h"]),
@@ -570,6 +611,8 @@ def fig_single_v5(
         f"{scale_short}  |  {period}",
         fontsize=9.0, fontfamily=FONT_SERIF,
     )
+    _add_figure_legend(fig, x0=0.07, y0=0.01)
+    _add_figure_metadata(fig, best_name, x1=0.97, y0=0.01)
 
     save_formats(fig, Path(out_dir), stem, dpi)
     plt.close(fig)
@@ -607,12 +650,13 @@ def _row_setup(comp4_df, coords_df, boundary_dir, scale_key):
     ok    = ~np.isnan(mmk_z)
     method = select_best(pts[ok], mmk_z[ok], gl, gt, xi)[1] if ok.sum() >= 4 else "IDW"
 
-    return polys, df, lons, lats, pts, gl, gt, xi, mask, xmin, xmax, ymin, ymax, method
+    return polys, df, stns, lons, lats, pts, gl, gt, xi, mask, xmin, xmax, ymin, ymax, method
 
 
 def plot_method_panel(ax, df_row, col, sig_col, pts, gl, gt, xi, mask, method,
                       cmap, vmin, vmax, z_ticks, z_thresh, title,
-                      polys, lons, lats, xmin, xmax, ymin, ymax) -> None:
+                      polys, lons, lats, xmin, xmax, ymin, ymax,
+                      station_ids=None) -> None:
     """Render one Z-statistic method panel (reuses _draw_panel)."""
     vals    = df_row[col].values.astype(float)
     sig_arr = np.array([str(s) in ("*", "**") for s in df_row[sig_col].values])
@@ -622,12 +666,14 @@ def plot_method_panel(ax, df_row, col, sig_col, pts, gl, gt, xi, mask, method,
                 lons=lons, lats=lats, z_vals=vals, sig_arr=sig_arr,
                 full_title=title, cb_label="Z",
                 cb_ticks=z_ticks, cb_thresholds=z_thresh,
-                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+                station_ids=station_ids)
 
 
 def plot_senslope_panel(ax, slope_vals, sig_arr, pts, gl, gt, xi, mask, method,
                         cmap, vabs, title,
-                        polys, lons, lats, xmin, xmax, ymin, ymax) -> None:
+                        polys, lons, lats, xmin, xmax, ymin, ymax,
+                        station_ids=None) -> None:
     """Render one Sen's slope panel (reuses _draw_panel)."""
     zz = _interp_masked(pts, slope_vals, xi, gl, mask, method)
     _draw_panel(ax, polys=polys, gl=gl, gt=gt, mask=mask, zz=zz,
@@ -635,7 +681,8 @@ def plot_senslope_panel(ax, slope_vals, sig_arr, pts, gl, gt, xi, mask, method,
                 lons=lons, lats=lats, z_vals=slope_vals, sig_arr=sig_arr,
                 full_title=title, cb_label="mm yr⁻¹",
                 cb_ticks=[-vabs, 0.0, vabs], cb_thresholds=None,
-                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+                station_ids=station_ids)
 
 
 # ── Four-method comparison row ────────────────────────────────────────────────
@@ -656,7 +703,7 @@ def fig_4method_row_v5(
     All panels share Z-stat colormap; per-panel inset colorbars.
     """
     setup_fonts()
-    polys, df, lons, lats, pts, gl, gt, xi, mask, xmin, xmax, ymin, ymax, method = \
+    polys, df, stns, lons, lats, pts, gl, gt, xi, mask, xmin, xmax, ymin, ymax, method = \
         _row_setup(comp4_df, coords_df, boundary_dir, scale_key)
     print(f"    Method: {method}")
 
@@ -682,7 +729,7 @@ def fig_4method_row_v5(
     for ax, (col, sig_col, title) in zip(axes, specs):
         plot_method_panel(ax, df, col, sig_col, pts, gl, gt, xi, mask, method,
                           cmap_z, -Z_VABS, Z_VABS, z_ticks, z_thresh, title,
-                          **geo)
+                          station_ids=stns, **geo)
 
     scale_short = {
         "Annual (Jan–Dec)":     "Annual (Jan–Dec)",
@@ -693,6 +740,8 @@ def fig_4method_row_v5(
         f"Four-Method MK Comparison — {scale_short}  |  {period}",
         fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
     )
+    _add_figure_legend(fig, x0=0.04, y0=0.01)
+    _add_figure_metadata(fig, method, x1=0.97, y0=0.01)
 
     save_formats(fig, Path(out_dir), stem, dpi)
     plt.close(fig)
@@ -759,7 +808,7 @@ def fig_senslope_row_v5(
 
         panels.append(dict(lons=lons, lats=lats, pts=pts, slope_v=slope_v,
                            sig_arr=sig_arr, zz=zz, scale_key=scale_key,
-                           method=method))
+                           method=method, stns=stns))
 
     global_vabs = float(np.ceil(max(global_vabs, 5) / 5) * 5)
 
@@ -774,6 +823,9 @@ def fig_senslope_row_v5(
                      constrained_layout=False)
     axes = build_row_layout(fig, len(panels))
 
+    # Track method names for metadata (use the last scale's method as representative)
+    method_label = panels[-1]["method"] if panels else "IDW"
+
     for ax, pdata, letter in zip(axes, panels, letters):
         title = (f"{letter} {_LABELS.get(pdata['scale_key'], pdata['scale_key'])}"
                  f" — mm yr⁻¹")
@@ -784,12 +836,15 @@ def fig_senslope_row_v5(
             title=title, polys=polys,
             lons=pdata["lons"], lats=pdata["lats"],
             xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+            station_ids=pdata["stns"],
         )
 
     fig.suptitle(
         f"Sen's Slope — All Temporal Scales  |  {period}",
         fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
     )
+    _add_figure_legend(fig, x0=0.04, y0=0.01)
+    _add_figure_metadata(fig, method_label, x1=0.97, y0=0.01)
 
     save_formats(fig, Path(out_dir), stem, dpi)
     plt.close(fig)
