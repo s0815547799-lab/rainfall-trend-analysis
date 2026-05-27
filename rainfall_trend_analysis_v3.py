@@ -61,6 +61,35 @@ import pandas as pd
 from scipy import stats as sps
 from scipy.stats import norm as scipy_norm
 
+# ── v4 extension modules (rta package) ───────────────────────────────────────
+# Gracefully degrade if rta is not installed (keeps v3 runnable standalone)
+try:
+    _RTA_AVAILABLE = False
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    from rta.pw               import pw_mk
+    from rta.tfpw             import tfpw_mk
+    from rta.field_significance import (walker_test, livezey_chen_mc,
+                                        field_sig_summary)
+    from rta.checkpoint       import (save   as _ckpt_save,
+                                      load   as _ckpt_load,
+                                      list_steps as _ckpt_list,
+                                      prompt_resume as _ckpt_prompt)
+    from rta.spatial          import load_coords, validate_coords
+    _RTA_AVAILABLE = True
+except ImportError:
+    _RTA_AVAILABLE = False
+    def pw_mk(x):   return {}
+    def tfpw_mk(x): return {}
+    def field_sig_summary(*a, **kw): return None
+    def walker_test(*a, **kw): return {}
+    def _ckpt_save(*a, **kw): pass
+    def _ckpt_load(*a, **kw): return None
+    def _ckpt_list(*a, **kw): return []
+    def _ckpt_prompt(*a, **kw): return 0
+    def load_coords(*a, **kw): return None
+    def validate_coords(*a, **kw): return {}
+
 # ── Visualisation ─────────────────────────────────────────────────────────────
 import matplotlib
 matplotlib.use("Agg")
@@ -567,10 +596,16 @@ def run_all(scales: dict, stns: list, smap: dict) -> pd.DataFrame:
             r1  = lag_k_autocorr(arr)
             sig_ac = is_sig_autocorr(r1, len(arr))
 
-            for method_fn, method_name in [
+            _method_list = [
                 (standard_mk, "Standard MK"),
                 (modified_mk, "Modified MK"),
-            ]:
+            ]
+            if _RTA_AVAILABLE:
+                _method_list += [
+                    (pw_mk,    "PW-MK"),
+                    (tfpw_mk,  "TFPW-MK"),
+                ]
+            for method_fn, method_name in _method_list:
                 res = method_fn(arr)
                 rows.append({
                     "Station":     stn,
@@ -632,6 +667,94 @@ def build_comparison(trend_df: pd.DataFrame) -> pd.DataFrame:
             "Slope_lo":      mmk["Slope_lo"],
             "Slope_hi":      mmk["Slope_hi"],
         })
+    return pd.DataFrame(rows)
+
+
+def build_4method_comparison(trend_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build 4-method wide comparison table for each (Station, Scale).
+
+    Requires trend_df to contain rows for "Standard MK", "Modified MK",
+    "PW-MK", and "TFPW-MK".  Missing methods yield NaN columns.
+
+    Returns one row per (Station × Scale) with columns:
+      Station, Code, Scale, Scale_Label, rho_1, Sig_AC,
+      MK_Z/p/slope/sig/trend, MMK_*, PW_*, TFPW_*,
+      dZ_MMK/PW/TFPW, dSlope_MMK/PW/TFPW,
+      all_agree, n_sig_methods
+    """
+    if trend_df is None or len(trend_df) == 0:
+        return pd.DataFrame()
+
+    rows = []
+    method_keys = {
+        "Standard MK": "MK",
+        "Modified MK": "MMK",
+        "PW-MK":       "PW",
+        "TFPW-MK":     "TFPW",
+    }
+
+    for (stn, sk), grp in trend_df.groupby(["Station", "Scale"]):
+        row = {"Station": stn, "Scale": sk}
+        mk_Z = mk_slope = np.nan
+
+        for method_name, prefix in method_keys.items():
+            sub = grp[grp["Method"] == method_name]
+            if len(sub) == 0:
+                row[f"{prefix}_Z"]     = np.nan
+                row[f"{prefix}_p"]     = np.nan
+                row[f"{prefix}_slope"] = np.nan
+                row[f"{prefix}_sig"]   = "—"
+                row[f"{prefix}_trend"] = "—"
+                continue
+            r = sub.iloc[0]
+            Z = float(r["Z"]) if not pd.isna(r["Z"]) else np.nan
+            p = float(r["p_value"]) if not pd.isna(r["p_value"]) else np.nan
+            sl = float(r["Slope_Q"]) if not pd.isna(r["Slope_Q"]) else np.nan
+            s01 = bool(r.get("sig_01", False))
+            s05 = bool(r.get("sig_05", False))
+            sig_str = "**" if s01 else ("*" if s05 else "ns")
+
+            row[f"{prefix}_Z"]     = round(Z, 4) if not np.isnan(Z) else np.nan
+            row[f"{prefix}_p"]     = round(p, 6) if not np.isnan(p) else np.nan
+            row[f"{prefix}_slope"] = round(sl, 3) if not np.isnan(sl) else np.nan
+            row[f"{prefix}_sig"]   = sig_str
+            row[f"{prefix}_trend"] = str(r.get("Trend", "—"))
+
+            # store rho_1 and Sig_AC from Standard MK row
+            if method_name == "Standard MK":
+                row["Code"]       = str(r.get("Code", stn))
+                row["Scale_Label"]= str(r.get("Scale_Label", sk))
+                row["rho_1"]      = float(r.get("rho_1", np.nan)) \
+                                    if not pd.isna(r.get("rho_1", np.nan)) else np.nan
+                row["Sig_AC"]     = bool(r.get("Sig_AC", False))
+                mk_Z     = row["MK_Z"]
+                mk_slope = row["MK_slope"]
+
+        # Delta columns (relative to Standard MK)
+        for prefix in ["MMK", "PW", "TFPW"]:
+            mZ  = row.get(f"{prefix}_Z",     np.nan)
+            mSl = row.get(f"{prefix}_slope", np.nan)
+            row[f"dZ_{prefix}"]     = (round(mZ  - mk_Z, 4)
+                                        if not (np.isnan(mZ) or np.isnan(mk_Z))
+                                        else np.nan)
+            row[f"dSlope_{prefix}"] = (round(mSl - mk_slope, 4)
+                                        if not (np.isnan(mSl) or np.isnan(mk_slope))
+                                        else np.nan)
+
+        # Agreement and significance count
+        trends = [row.get(f"{p}_trend", "—") for p in method_keys.values()
+                  if row.get(f"{p}_trend", "—") not in ("—", "No trend")]
+        all_agree = len(set(trends)) <= 1 if trends else True
+        n_sig = sum(
+            1 for p in method_keys.values()
+            if row.get(f"{p}_sig", "ns") in ("*", "**")
+        )
+        row["all_agree"]      = all_agree
+        row["n_sig_methods"]  = n_sig
+
+        rows.append(row)
+
     return pd.DataFrame(rows)
 
 
@@ -2104,22 +2227,38 @@ def short_labels(stns):
 
 def main():
     SEP = "═" * 72
+    _ext = " + PW-MK + TFPW-MK" if _RTA_AVAILABLE else ""
     print(SEP)
     print(f"  Rainfall Trend Analysis  v{VERSION}  — Publication Edition")
-    print("  Standard MK + Modified MK (H&R98) + Sen's Slope")
+    print(f"  Standard MK + Modified MK (H&R98){_ext} + Sen's Slope")
     print("  Hydrological Year: Wet (May–Oct) | Dry (Nov–Apr)")
-    print("  Output: 8 Figures + 6-sheet Excel + Research Summary Markdown")
+    print("  Output: 8 Figures + Excel + Research Summary Markdown")
+    if _RTA_AVAILABLE:
+        print("  Extensions: Field Significance | Checkpoint/Resume | Spatial Support")
     print(SEP)
 
-    # ── Working directory ───────────────────────────────────────────────
-    try:
-        work_dir = (sys.argv[1].strip('"').strip("'")
-                    if len(sys.argv) > 1
-                    else str(Path(os.path.abspath(__file__)).parent))
-    except Exception:
-        work_dir = os.getcwd()
+    # ── CLI arguments: [folder] [--no-resume] [--no-pdf] ────────────────
+    args      = sys.argv[1:]
+    work_dir  = None
+    no_resume = False
+    for a in args:
+        if a == "--no-resume":
+            no_resume = True
+        elif a == "--no-pdf":
+            import rta.config as _cfg; _cfg.SAVE_PDF = False
+        elif not a.startswith("--"):
+            work_dir = a.strip('"').strip("'")
+    if work_dir is None:
+        try:
+            work_dir = str(Path(os.path.abspath(__file__)).parent)
+        except Exception:
+            work_dir = os.getcwd()
 
     out_dir  = Path(work_dir)
+    cp_dir   = out_dir / "checkpoints"
+    if _RTA_AVAILABLE:
+        cp_dir.mkdir(exist_ok=True)
+
     csv_path = find_csv(work_dir)
     base     = Path(csv_path).stem
     prefix   = f"Output_TrendV2_{base}"
@@ -2127,17 +2266,33 @@ def main():
     print(f"  Input : {csv_path}")
     print(f"  Output: {work_dir}\n")
 
+    # ── Checkpoint: prompt resume ────────────────────────────────────────
+    resume_from = 0
+    if _RTA_AVAILABLE:
+        resume_from = _ckpt_prompt(cp_dir, no_resume=no_resume)
+
     # ════════════════════════════════════════════════════════════════════
     # Step 1: Load + QC
     # ════════════════════════════════════════════════════════════════════
-    print("  Step 1: Loading data and Quality Control ...")
-    df_raw     = load_daily(csv_path)
-    df, qc_dict= quality_control(df_raw.copy())
-    stns       = df.columns.tolist()
-    stns_str   = [str(s) for s in stns]
-    smap       = short_labels(stns_str)
-    period     = f"{df.index[0].year}–{df.index[-1].year}"
+    if _RTA_AVAILABLE and resume_from >= 1:
+        print("  Step 1: Loading QC checkpoint ...")
+        _ck = _ckpt_load("01_qc", cp_dir)
+        df, qc_dict = _ck["df"], _ck["qc_dict"]
+        stns_str, smap, period = _ck["stns_str"], _ck["smap"], _ck["period"]
+    else:
+        print("  Step 1: Loading data and Quality Control ...")
+        df_raw     = load_daily(csv_path)
+        df, qc_dict= quality_control(df_raw.copy())
+        stns_str   = [str(s) for s in df.columns.tolist()]
+        smap       = short_labels(stns_str)
+        period     = f"{df.index[0].year}–{df.index[-1].year}"
+        if _RTA_AVAILABLE:
+            _ckpt_save("01_qc",
+                       {"df": df, "qc_dict": qc_dict,
+                        "stns_str": stns_str, "smap": smap, "period": period},
+                       cp_dir)
 
+    global scales_global
     print(f"  Stations: {len(stns_str)} | Period: {period} | "
           f"Records: {len(df):,}")
     for s, q in qc_dict.items():
@@ -2148,11 +2303,20 @@ def main():
     # ════════════════════════════════════════════════════════════════════
     # Step 2: Temporal Aggregation
     # ════════════════════════════════════════════════════════════════════
-    print("\n  Step 2: Temporal aggregation ...")
-    scales = aggregate_all(df)
-    global scales_global
+    if _RTA_AVAILABLE and resume_from >= 2:
+        print("\n  Step 2: Loading aggregation checkpoint ...")
+        _ck2 = _ckpt_load("02_aggregation", cp_dir)
+        scales, desc_df = _ck2["scales"], _ck2["desc_df"]
+    else:
+        print("\n  Step 2: Temporal aggregation ...")
+        scales = aggregate_all(df)
+        desc_df = descriptive_stats(scales, df)
+        if _RTA_AVAILABLE:
+            _ckpt_save("02_aggregation",
+                       {"scales": scales, "desc_df": desc_df}, cp_dir)
+
     scales_global = scales
-    for sk in ["annual","wet","dry"]:
+    for sk in ["annual", "wet", "dry"]:
         df_s = scales[sk]
         print(f"    {SCALE_META[sk]['label']:22s}: "
               f"{len(df_s)} years × {df_s.shape[1]} stations")
@@ -2161,8 +2325,7 @@ def main():
     # Step 3: Descriptive Statistics
     # ════════════════════════════════════════════════════════════════════
     print("\n  Step 3: Descriptive statistics ...")
-    desc_df = descriptive_stats(scales, df)
-    print(desc_df[["Mean (mm)","CV (%)","Wet-days/yr","Skewness"]].to_string())
+    print(desc_df[["Mean (mm)", "CV (%)", "Wet-days/yr", "Skewness"]].to_string())
 
     # ════════════════════════════════════════════════════════════════════
     # Step 4: Autocorrelation
@@ -2183,49 +2346,108 @@ def main():
     print(f"\n  → {'Modified MK applied' if any_sig_ac else 'No significant AC'}")
 
     # ════════════════════════════════════════════════════════════════════
-    # Step 5-6: MK + MMK for all stations × scales
+    # Step 5-6: Trend tests (MK + MMK + PW-MK + TFPW-MK if available)
     # ════════════════════════════════════════════════════════════════════
-    print("\n  Steps 5–6: Standard MK + Modified MK ...")
-    trend_df = run_all(scales, stns_str, smap)
+    if _RTA_AVAILABLE and resume_from >= 4:
+        print("\n  Steps 5–6: Loading trend checkpoint ...")
+        _ck4 = _ckpt_load("04_trends", cp_dir)
+        trend_df = _ck4["trend_df"]
+    else:
+        _method_label = ("Standard MK + Modified MK + PW-MK + TFPW-MK"
+                         if _RTA_AVAILABLE else "Standard MK + Modified MK")
+        print(f"\n  Steps 5–6: {_method_label} ...")
+        trend_df = run_all(scales, stns_str, smap)
+        if _RTA_AVAILABLE:
+            _ckpt_save("04_trends", {"trend_df": trend_df}, cp_dir)
 
-    # Print summary table
+    # Print summary table (show MK and MMK; PW/TFPW printed if available)
+    _print_methods = ["Standard MK", "Modified MK"]
+    if _RTA_AVAILABLE:
+        _print_methods += ["PW-MK", "TFPW-MK"]
     print(f"\n  {'Code':6s} {'Scale':12s} {'Method':15s} "
           f"{'Z':>7s} {'p':>7s} {'β mm/yr':>8s}  Trend")
-    print("  " + "-"*68)
-    for sk in ["annual","wet","dry"]:
-        for meth in ["Standard MK","Modified MK"]:
-            for _, row in trend_df[(trend_df["Scale"]==sk) &
-                                    (trend_df["Method"]==meth)].iterrows():
+    print("  " + "-" * 68)
+    for sk in ["annual", "wet", "dry"]:
+        for meth in _print_methods:
+            sub = trend_df[(trend_df["Scale"] == sk) &
+                           (trend_df["Method"] == meth)]
+            for _, row in sub.iterrows():
                 slab = _sig_label(row["sig_05"], row["sig_01"], row["Z"])
-                beta = f"{row['Slope_Q']:+.2f}" if not np.isnan(row["Slope_Q"]) else "—"
+                beta = (f"{row['Slope_Q']:+.2f}"
+                        if not np.isnan(row["Slope_Q"]) else "—")
                 print(f"  {row['Code']:6s} {sk:12s} {meth[:14]:15s} "
                       f"{row['Z']:7.3f} {row['p_value']:7.4f} "
                       f"{beta:>8s}  {row['Trend']} {slab}")
         print()
 
-    n_total  = len(trend_df)
-    n_sig_mk  = int(trend_df[trend_df["Method"]=="Standard MK"]["sig_05"].sum())
-    n_sig_mmk = int(trend_df[trend_df["Method"]=="Modified MK"]["sig_05"].sum())
-    print(f"  Significant (p<0.05): Standard MK={n_sig_mk}/{n_total//2}  "
-          f"Modified MK={n_sig_mmk}/{n_total//2}")
+    n_mk_rows = int((trend_df["Method"] == "Standard MK").sum())
+    n_total   = n_mk_rows  # used for reporting fractions
+    n_sig_mk  = int(trend_df[trend_df["Method"] == "Standard MK"]["sig_05"].sum())
+    n_sig_mmk = int(trend_df[trend_df["Method"] == "Modified MK"]["sig_05"].sum())
+    print(f"  Significant (p<0.05): "
+          f"Standard MK={n_sig_mk}/{n_mk_rows}  "
+          f"Modified MK={n_sig_mmk}/{n_mk_rows}")
+    if _RTA_AVAILABLE:
+        for meth in ["PW-MK", "TFPW-MK"]:
+            n_s = int(trend_df[trend_df["Method"] == meth]["sig_05"].sum())
+            print(f"  Significant (p<0.05): {meth}={n_s}/{n_mk_rows}")
 
     # ════════════════════════════════════════════════════════════════════
-    # Step 7: Build comparison table
+    # Step 7: Comparison tables
     # ════════════════════════════════════════════════════════════════════
-    print("\n  Step 7: Building MK vs MMK comparison ...")
-    comp_df = build_comparison(trend_df)
-    n_agree = int(comp_df["Agree"].sum())
-    print(f"  Agreement: {n_agree}/{len(comp_df)} "
-          f"({100*n_agree/len(comp_df):.1f}%)")
+    if _RTA_AVAILABLE and resume_from >= 5:
+        print("\n  Step 7: Loading comparison checkpoint ...")
+        _ck5 = _ckpt_load("05_comparison", cp_dir)
+        comp_df  = _ck5["comp_df"]
+        comp4_df = _ck5.get("comp4_df")
+    else:
+        print("\n  Step 7: Building comparison tables ...")
+        comp_df  = build_comparison(trend_df)
+        comp4_df = build_4method_comparison(trend_df) if _RTA_AVAILABLE else None
+        if _RTA_AVAILABLE:
+            _ckpt_save("05_comparison",
+                       {"comp_df": comp_df, "comp4_df": comp4_df}, cp_dir)
+
+    n_agree   = int(comp_df["Agree"].sum())
     n_changed = len(comp_df) - n_agree
+    print(f"  MK vs MMK agreement: {n_agree}/{len(comp_df)} "
+          f"({100*n_agree/len(comp_df):.1f}%)")
     if n_changed > 0:
-        print(f"  ⚠  {n_changed} cases where autocorr. correction changed trend conclusion:")
+        print(f"  ⚠  {n_changed} cases where AC correction changed conclusion:")
         for _, r in comp_df[~comp_df["Agree"]].iterrows():
-            print(f"     {smap.get(r['Station'],r['Station'])} "
+            print(f"     {smap.get(r['Station'], r['Station'])} "
                   f"({r['Scale']}): MK={r['MK_Trend']}  MMK={r['MMK_Trend']}")
+    if comp4_df is not None and len(comp4_df) > 0:
+        n_all = int(comp4_df["all_agree"].sum()) if "all_agree" in comp4_df.columns else 0
+        print(f"  4-method full agreement: {n_all}/{len(comp4_df)}")
 
     # ════════════════════════════════════════════════════════════════════
-    # Step 8: Figures
+    # Step 7b: Field significance (rta extension)
+    # ════════════════════════════════════════════════════════════════════
+    field_sig_df = None
+    if _RTA_AVAILABLE:
+        if resume_from >= 6:
+            print("\n  Step 7b: Loading field significance checkpoint ...")
+            _ck6 = _ckpt_load("06_field_sig", cp_dir)
+            field_sig_df = _ck6["field_sig_df"]
+        else:
+            print("\n  Step 7b: Field significance (Walker + Livezey-Chen MC) ...")
+            field_sig_df = field_sig_summary(scales, stns_str,
+                                             alpha=ALPHA_005, n_perm=1000)
+            _ckpt_save("06_field_sig", {"field_sig_df": field_sig_df}, cp_dir)
+        if field_sig_df is not None and len(field_sig_df) > 0:
+            print(field_sig_df[["Scale", "N_sig_MK", "N_sig_MMK",
+                                 "Walker_sig_MK", "LC_sig_MK"]].to_string(index=False))
+
+    # ── Station coordinates (optional) ──────────────────────────────────
+    coords = load_coords(work_dir) if _RTA_AVAILABLE else None
+    if coords:
+        print(f"\n  ✓ Station coordinates loaded ({len(coords)} stations)")
+    else:
+        print("\n  ℹ  No coordinates file found — spatial maps use index axis")
+
+    # ════════════════════════════════════════════════════════════════════
+    # Step 8: Original 8 figures (Output_TrendV2_ prefix — backward compat)
     # ════════════════════════════════════════════════════════════════════
     print(f"\n{'─'*72}")
     print("  Step 8: Generating publication figures (600 DPI) ...")
@@ -2253,7 +2475,60 @@ def main():
 
     print("\n  Figure 8: Spatial Trend Summary ...")
     fig8_spatial_summary(trend_df, comp_df, stns_str, smap, period,
-                          out_dir, prefix)
+                         out_dir, prefix)
+
+    # ════════════════════════════════════════════════════════════════════
+    # Step 8b: New v4 figures (Output_TrendV2_ same prefix, additional figs)
+    # ════════════════════════════════════════════════════════════════════
+    if _RTA_AVAILABLE:
+        try:
+            from rta.figures.method_comparison import (
+                fig10_z_comparison_matrix,
+                fig11_method_comparison_scatter)
+            from rta.figures.taylor      import fig9_taylor_diagram
+            from rta.figures.acf_plots   import fig12_acf_diagnostics
+            from rta.figures.field_sig_plot import fig13_field_significance
+            from rta.figures.spatial_maps   import (fig14_spatial_maps,
+                    fig_station_distribution, fig_spatial_methods,
+                    fig_spatial_field_sig, fig_spatial_full)
+
+            print("\n  Figure 9: Taylor Diagram ...")
+            fig9_taylor_diagram(scales, stns_str, smap, period, out_dir, prefix)
+
+            print("\n  Figure 10: Z-Comparison Matrix (4 methods) ...")
+            fig10_z_comparison_matrix(trend_df, stns_str, smap, period,
+                                      out_dir, prefix)
+
+            print("\n  Figure 11: Method Comparison Scatter ...")
+            fig11_method_comparison_scatter(trend_df, stns_str, smap, period,
+                                            out_dir, prefix)
+
+            print("\n  Figure 12: ACF Diagnostics ...")
+            fig12_acf_diagnostics(scales, stns_str, smap, period, out_dir, prefix)
+
+            if field_sig_df is not None and len(field_sig_df) > 0:
+                print("\n  Figure 13: Field Significance ...")
+                fig13_field_significance(field_sig_df, period, out_dir, prefix)
+
+            print("\n  Figure 14: Spatial Trend Maps (geographic, MMK) ...")
+            fig14_spatial_maps(trend_df, stns_str, smap, coords, period,
+                               out_dir, prefix)
+
+            if coords:
+                print("\n  Figure 14b: Station Distribution Map ...")
+                fig_station_distribution(coords, stns_str, smap, period,
+                                         out_dir, prefix)
+                print("\n  Figure 14c: All-Methods Spatial Maps ...")
+                fig_spatial_methods(trend_df, stns_str, smap, coords, period,
+                                    out_dir, prefix)
+                print("\n  Figure 14d: Field Significance Spatial Map ...")
+                fig_spatial_field_sig(trend_df, field_sig_df, stns_str,
+                                       smap, coords, period, out_dir, prefix)
+                print("\n  Figure 14e: Comprehensive Spatial Overview ...")
+                fig_spatial_full(trend_df, stns_str, smap, coords,
+                                  field_sig_df, period, out_dir, prefix)
+        except Exception as _fig_err:
+            print(f"  ⚠  New figures skipped: {_fig_err}")
 
     # ════════════════════════════════════════════════════════════════════
     # Step 9: Excel
@@ -2277,6 +2552,7 @@ def main():
     # Final Summary
     # ════════════════════════════════════════════════════════════════════
     n_fig = len(list(out_dir.glob(f"{prefix}_Fig*.png")))
+    n_sheets = 6
     print()
     print(SEP)
     print(f"  ✓  DONE — Rainfall Trend Analysis v{VERSION}")
@@ -2285,16 +2561,24 @@ def main():
     print(f"  Stations         : {len(stns_str)}  "
           f"({', '.join(smap.values())})")
     print(f"  Temporal scales  : Annual / Wet (May–Oct) / Dry (Nov–Apr)")
-    print(f"  Methods          : Standard MK + Modified MK (H&R98) + Sen's slope")
+    _m_str = "MK + MMK + PW-MK + TFPW-MK" if _RTA_AVAILABLE else "MK + MMK"
+    print(f"  Methods          : {_m_str} + Sen's slope")
     print(f"  Autocorr. (Lag-1): "
-          f"{'Significant detected → Modified MK essential' if any_sig_ac else 'Not significant'}")
+          f"{'Significant → Modified MK essential' if any_sig_ac else 'Not significant'}")
     print(f"  Sig. (p<0.05)    : "
-          f"MK={n_sig_mk}/{n_total//2}  "
-          f"MMK={n_sig_mmk}/{n_total//2}")
+          f"MK={n_sig_mk}/{n_mk_rows}  "
+          f"MMK={n_sig_mmk}/{n_mk_rows}")
     print(f"  MK vs MMK agree  : "
           f"{n_agree}/{len(comp_df)} ({100*n_agree/len(comp_df):.1f}%)")
+    if field_sig_df is not None and len(field_sig_df) > 0:
+        row = field_sig_df[field_sig_df["Scale"] == "annual"]
+        if len(row):
+            r = row.iloc[0]
+            print(f"  Field sig (ann)  : "
+                  f"Walker={'Yes' if r['Walker_sig_MK'] else 'No'}  "
+                  f"LC={'Yes' if r['LC_sig_MK'] else 'No'}")
     print(f"  Figures          : {n_fig} PNG" + (" + PDF" if SAVE_PDF else ""))
-    print(f"  Excel (6 sheets) : {out_xlsx.name}")
+    print(f"  Excel ({n_sheets} sheets): {out_xlsx.name}")
     print(f"  Summary (MD)     : {out_md.name}")
     print(f"  Saved in         : {work_dir}")
     print(SEP)
