@@ -8,11 +8,12 @@ READS  (no statistical recomputation):
   data/stations.csv                         — station_id, lat, lon, altitude
 
 WRITES:
-  results/final_N33_v5/
-    comparison_maps/
+  results/final_N33_v5/publication_maps_v51/
+    MK_vs_MMK/
       Fig_Compare_MK_vs_MMK.{png,tif,pdf,svg}       × 3 scales
+    PW_vs_TFPW/
       Fig_Compare_PW_vs_TFPW.{png,tif,pdf,svg}      × 3 scales
-    single_method_maps/
+    Individual_Methods/
       Fig_Standard_MK.{png,tif,pdf,svg}             × 3 scales
       Fig_Modified_MK.{png,tif,pdf,svg}             × 3 scales
       Fig_PW_MK.{png,tif,pdf,svg}                   × 3 scales
@@ -21,12 +22,16 @@ WRITES:
 
   [REGEN_MAIN=True only]
   results/final_N33_v5/publication_maps_v51/
-      Fig_Q1_SpatialTrend_v5.{png,tif,pdf,svg}      × 3 scales
+    annual/  Fig_Q1_SpatialTrend_v5.{png,tif,pdf,svg}
+    wet/     Fig_Q1_SpatialTrend_v5.{png,tif,pdf,svg}
+    dry/     Fig_Q1_SpatialTrend_v5.{png,tif,pdf,svg}
+    Fig_Metadata_Q1.txt
 
 SAFETY:
   v4 files and results/final_N33/ are untouched.
   results/final_N33_v5/publication_maps/    NOT overwritten.
-  results/final_N33_v5/publication_maps_v51/ NOT overwritten (REGEN_MAIN=False).
+  results/final_N33_v5/comparison_maps/     NOT overwritten (legacy, kept as-is).
+  results/final_N33_v5/single_method_maps/  NOT overwritten (legacy, kept as-is).
   MK / MMK / PW / TFPW / Sen slope statistics are NOT recomputed.
 
 Run:
@@ -50,9 +55,11 @@ BOUNDARY_DIR = ROOT / "boundaries" / "current_boundary"
 STATIONS_CSV = ROOT / "data" / "stations.csv"
 FINAL_N33    = ROOT / "results" / "final_N33"
 V5_ROOT      = ROOT / "results" / "final_N33_v5"
-PUB_DIR      = V5_ROOT / "publication_maps_v51"   # existing — only if REGEN_MAIN
-COMP_DIR     = V5_ROOT / "comparison_maps"         # NEW
-SINGLE_DIR   = V5_ROOT / "single_method_maps"      # NEW
+PUB_DIR      = V5_ROOT / "publication_maps_v51"   # top-level; subfolders below
+# ── Subdirectories under publication_maps_v51/ ────────────────────────────────
+MK_MMK_DIR   = PUB_DIR / "MK_vs_MMK"
+PW_TFPW_DIR  = PUB_DIR / "PW_vs_TFPW"
+INDIV_DIR    = PUB_DIR / "Individual_Methods"
 VAL_DIR      = V5_ROOT / "validation"
 MAN_DIR      = V5_ROOT / "manuscript"
 PERIOD       = "1981–2014"
@@ -85,8 +92,7 @@ if errors:
 print(f"\n  Boundary   : {BOUNDARY_DIR}")
 print(f"  Stations   : {STATIONS_CSV.name}")
 print(f"  Excel      : {EXCEL_PATH.name}")
-print(f"  Compare    : {COMP_DIR}")
-print(f"  Single     : {SINGLE_DIR}")
+print(f"  Exports    : {PUB_DIR}")
 print(f"  REGEN_MAIN : {REGEN_MAIN}")
 print()
 
@@ -130,6 +136,13 @@ _SCALES = {
 }
 
 # ── [Optional] Regenerate 5-panel figures ────────────────────────────────────
+_SCALE_DIRS = {
+    "Annual (Jan–Dec)":     PUB_DIR / "annual",
+    "Wet Season (May–Oct)": PUB_DIR / "wet",
+    "Dry Season (Nov–Apr)": PUB_DIR / "dry",
+}
+_STEM_BASE = "Fig_Q1_SpatialTrend_v5"
+
 if REGEN_MAIN:
     print("\n── LOOCV — all scales (for 5-panel figures) ─────────────────────")
     loocv_all, best_methods, _method_cmp = run_loocv_all(
@@ -138,14 +151,13 @@ if REGEN_MAIN:
     )
     all_loocv_rows: list[dict] = []
     best_methods_fig: dict[str, str] = {}
-    _STEM_BASE = "Fig_Q1_SpatialTrend_v5"
 
-    for scale, suffix in _SCALES.items():
+    for scale in _SCALES:
         print(f"\n── {scale} ─────────────────────────────────────────────────")
         rows, bm, _ = fig_q1_spatial_trend_v5(
             comp4_df=comp4_df, coords_df=coords_df,
-            boundary_dir=BOUNDARY_DIR, out_dir=PUB_DIR,
-            stem=f"{_STEM_BASE}{suffix}", period=PERIOD,
+            boundary_dir=BOUNDARY_DIR, out_dir=_SCALE_DIRS[scale],
+            stem=_STEM_BASE, period=PERIOD,
             scale_key=scale, dpi=DPI,
         )
         all_loocv_rows.extend(rows)
@@ -162,7 +174,7 @@ if REGEN_MAIN:
     )
     polys = load_boundary(BOUNDARY_DIR)
     write_fig_metadata(
-        out_dir=PUB_DIR, stem=_STEM_BASE,
+        out_dir=PUB_DIR, stem=_STEM_BASE,          # metadata at PUB_DIR root
         loocv_rows=all_loocv_rows, best_methods=best_methods_fig,
         all_metrics={"Annual (Jan–Dec)": _annual_cmp},
         field_sig_df=load_field_sig(str(EXCEL_PATH)),
@@ -175,6 +187,7 @@ print("\n── Comparison figures ───────────────
 
 _COMPARE_SPECS = [
     {
+        "out_dir":   MK_MMK_DIR,
         "stem_base": "Fig_Compare_MK_vs_MMK",
         "col_a": "MK_Z",    "sig_a": "MK_sig",
         "title_a": "(a) Standard MK — Z Statistic",
@@ -182,6 +195,7 @@ _COMPARE_SPECS = [
         "title_b": "(b) Modified MK — Z Statistic",
     },
     {
+        "out_dir":   PW_TFPW_DIR,
         "stem_base": "Fig_Compare_PW_vs_TFPW",
         "col_a": "PW_Z",    "sig_a": "PW_sig",
         "title_a": "(a) PW-MK — Z Statistic",
@@ -196,7 +210,7 @@ for spec in _COMPARE_SPECS:
         print(f"\n  {stem}")
         fig_compare_v5(
             comp4_df=comp4_df, coords_df=coords_df,
-            boundary_dir=BOUNDARY_DIR, out_dir=COMP_DIR,
+            boundary_dir=BOUNDARY_DIR, out_dir=spec["out_dir"],
             stem=stem, period=PERIOD, scale_key=scale,
             col_a=spec["col_a"], sig_a=spec["sig_a"], title_a=spec["title_a"],
             col_b=spec["col_b"], sig_b=spec["sig_b"], title_b=spec["title_b"],
@@ -250,7 +264,7 @@ for spec in _SINGLE_SPECS:
         print(f"\n  {stem}")
         fig_single_v5(
             comp4_df=comp4_df, coords_df=coords_df,
-            boundary_dir=BOUNDARY_DIR, out_dir=SINGLE_DIR,
+            boundary_dir=BOUNDARY_DIR, out_dir=INDIV_DIR,
             stem=stem, period=PERIOD, scale_key=scale,
             col=spec["col"], sig_col=spec["sig_col"],
             panel_title=spec["panel_title"],
@@ -261,8 +275,11 @@ for spec in _SINGLE_SPECS:
 # ── Summary ───────────────────────────────────────────────────────────────────
 print("\n" + "=" * 68)
 print("  v5 complete.")
-print(f"  comparison_maps/    : {COMP_DIR}")
-print(f"  single_method_maps/ : {SINGLE_DIR}")
+print(f"  MK_vs_MMK/          : {MK_MMK_DIR}")
+print(f"  PW_vs_TFPW/         : {PW_TFPW_DIR}")
+print(f"  Individual_Methods/ : {INDIV_DIR}")
 if REGEN_MAIN:
-    print(f"  publication_maps/   : {PUB_DIR}")
+    print(f"  annual/             : {_SCALE_DIRS['Annual (Jan–Dec)']}")
+    print(f"  wet/                : {_SCALE_DIRS['Wet Season (May–Oct)']}")
+    print(f"  dry/                : {_SCALE_DIRS['Dry Season (Nov–Apr)']}")
 print("=" * 68)

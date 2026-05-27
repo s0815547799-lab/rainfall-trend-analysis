@@ -1,18 +1,19 @@
 """
 rta_v5.spatial_publication_q1_v5 — Refined Q1 publication-grade spatial map.
 
-5-panel layout:
-    (a) Standard MK   │  (b) Modified MK
-    (c) PW-MK         │  (d) TFPW-MK
-              (e) Sen's Slope   ← exactly centred, slightly enlarged
+5-panel asymmetric layout (3×2 grid):
+    (a) Standard MK      │  (b) Modified MK
+    (c) PW-MK            │  (e) Sen's Slope
+    (d) TFPW-MK          │  (empty — intentional)
 
-v5.1 refinements (in-place):
-  • constrained_layout=True — automatic tight spacing, no manual margins
+v5.2 refinements (in-place):
+  • constrained_layout=False; explicit GridSpec(3,2) with hspace/wspace
+  • bbox_inches='tight', pad_inches=0.04 — aggressive canvas trim
+  • Station markers: red ^ = increase, blue v = decrease (matches RdBu_r)
   • Per-panel inset colorbars at lower-right of every panel
   • Single-line panel titles: "(a) Standard MK — Z Statistic"
   • Geographic aspect via format_map_axes (1/cos(lat_c))
   • No shared/global colorbar axes
-  • bbox_inches='tight' trims excess canvas
 """
 
 from __future__ import annotations
@@ -288,9 +289,9 @@ def fig_q1_spatial_trend_v5(
     z_thresh    = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
     slope_ticks = [-slp_abs, 0.0, slp_abs]
 
-    # ── Figure: constrained_layout, 3-row × 4-col ────────────────────────────
+    # ── Figure: 3-row × 2-col asymmetric, explicit GridSpec ──────────────────
     fig = plt.figure(figsize=(LAYOUT["fig_w"], LAYOUT["fig_h"]),
-                     constrained_layout=True)
+                     constrained_layout=False)
     ax_a, ax_b, ax_c, ax_d, ax_e = build_axes(fig)
 
     # Shared geographic kwargs

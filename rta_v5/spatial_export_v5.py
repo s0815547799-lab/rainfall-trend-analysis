@@ -25,7 +25,8 @@ import pandas as pd
 # ║  Figure export                                                           ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-def save_formats(fig, out_dir: Path, stem: str, dpi: int = 600) -> list[Path]:
+def save_formats(fig, out_dir: Path, stem: str,
+                 dpi: int = 600, pad_inches: float = 0.04) -> list[Path]:
     """
     Save figure in PNG, TIFF (LZW), PDF, and SVG formats.
 
@@ -43,7 +44,8 @@ def save_formats(fig, out_dir: Path, stem: str, dpi: int = 600) -> list[Path]:
     for fmt, kw in formats:
         p = out_dir / f"{stem}.{fmt}"
         try:
-            fig.savefig(p, format=fmt, bbox_inches="tight", **kw)
+            fig.savefig(p, format=fmt,
+                        bbox_inches="tight", pad_inches=pad_inches, **kw)
             print(f"    ✓ {p.name}")
             written.append(p)
         except Exception as exc:

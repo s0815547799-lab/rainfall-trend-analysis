@@ -2,12 +2,14 @@
 rta_v5.spatial_layout_v5 — Figure layout constants, color palette, font
 setup, and cartographic decoration helpers for Q1 spatial maps.
 
-v5.1 refinements (in-place):
-  • constrained_layout — automatic tight spacing, no manual margin params
-  • Per-panel inset colorbars replace shared global colorbar axes
-  • build_axes() returns 5 map axes only (no colorbar axes)
-  • Geographic aspect-aware figure scaling
-  • Colorblind-safe station marker palette (Wong 2011)
+v5.2 refinements (in-place):
+  • Asymmetric 3×2 GridSpec replaces 3×4; constrained_layout=False
+  • Explicit hspace/wspace + bbox_inches='tight'/pad_inches=0.04
+  • Panel (e) Sen's Slope moved to middle-right; (d) TFPW to bottom-left
+  • Bottom-right cell intentionally empty — no axes added
+  • Station markers: red ^ = increase, blue v = decrease (matches RdBu_r)
+  • Per-panel inset colorbars (lower-right of each panel)
+  • Geographic aspect-aware figure scaling via format_map_axes
   • build_axes_compare() — 1×2 panel for side-by-side method comparisons
   • build_axes_single()  — 1-panel for standalone method figures
 
@@ -38,10 +40,10 @@ def setup_fonts() -> None:
     })
 
 
-# ── Colors — Wong (2011) colorblind-safe palette ─────────────────────────────
-C_INC = "#0072B2"   # significant increasing — blue   (safe for CVD)
-C_DEC = "#D55E00"   # significant decreasing — vermilion (safe for CVD)
-C_NS  = "#78909C"   # not significant        — grey   (neutral)
+# ── Colors — ColorBrewer RdBu extremes (match background colormap) ───────────
+C_INC = "#B2182B"   # significant increasing — dark red   (RdBu positive extreme)
+C_DEC = "#2166AC"   # significant decreasing — dark blue  (RdBu negative extreme)
+C_NS  = "#78909C"   # not significant        — grey       (neutral)
 
 # ── Colormap bounds ───────────────────────────────────────────────────────────
 Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
@@ -49,19 +51,19 @@ Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
 
 # ── Layout specification ──────────────────────────────────────────────────────
 #
-# 5-panel figure: 11 × 12.5 inches  (constrained_layout)
-# Maps:   3-row × 4-col GridSpec
-#           Row 0: (a) cols 0:2,  (b) cols 2:4
-#           Row 1: (c) cols 0:2,  (d) cols 2:4
-#           Row 2: (empty) cols 0:2, (e) cols 2:4  ← lower-right
+# 5-panel figure: 9 × 16 inches (constrained_layout=False)
+# Maps:   3-row × 2-col GridSpec (asymmetric)
+#           Row 0: (a) col 0,  (b) col 1
+#           Row 1: (c) col 0,  (e) col 1   ← Sen's Slope at middle-right
+#           Row 2: (d) col 0,  (empty)     ← TFPW-MK; bottom-right intentional
 # Comparison figure: 10 × 8.5 inches, 1-row × 2-col GridSpec
 # Single-method figure: 5.5 × 8.5 inches, 1-row × 1-col GridSpec
 # Colorbars: per-panel inset axes (lower-right of each panel)
 #
 LAYOUT = {
-    # 5-panel figure
-    "fig_w":     11.0,      # inches
-    "fig_h":     12.5,      # inches
+    # 5-panel figure (3×2 asymmetric, constrained_layout=False)
+    "fig_w":     9.0,       # inches
+    "fig_h":     16.0,      # inches — tall for elongated N-S province
     # Comparison figure (2 panels side-by-side)
     "cmp_fig_w": 10.0,
     "cmp_fig_h": 8.5,
@@ -88,9 +90,14 @@ LAYOUT = {
 
 def build_axes(fig):
     """
-    Build the 5-panel map axes using a constrained-layout GridSpec.
+    Build the 5-panel map axes: asymmetric 3×2 GridSpec (constrained_layout=False).
 
-    The figure must be created with constrained_layout=True.
+    Grid layout:
+        Row 0:  (a) Standard MK      |  (b) Modified MK
+        Row 1:  (c) PW-MK            |  (e) Sen's Slope
+        Row 2:  (d) TFPW-MK          |  (empty — intentional)
+
+    The figure must be created with constrained_layout=False.
     Per-panel inset colorbars are added by the caller via ax.inset_axes().
 
     Returns
@@ -99,14 +106,18 @@ def build_axes(fig):
     """
     from matplotlib.gridspec import GridSpec
 
-    # No explicit left/right/top/bottom — constrained_layout handles spacing.
-    # Row 2 is 5 % taller so panel (e) is slightly enlarged when centred.
-    gs = GridSpec(3, 4, figure=fig, height_ratios=[1, 1, 1.05])
-    ax_a = fig.add_subplot(gs[0, 0:2])
-    ax_b = fig.add_subplot(gs[0, 2:4])
-    ax_c = fig.add_subplot(gs[1, 0:2])
-    ax_d = fig.add_subplot(gs[1, 2:4])
-    ax_e = fig.add_subplot(gs[2, 2:4])   # lower-right: cols 2–3 of 4
+    gs = GridSpec(
+        3, 2, figure=fig,
+        hspace=0.12, wspace=0.12,
+        left=0.09, right=0.96,
+        top=0.94, bottom=0.02,
+    )
+    ax_a = fig.add_subplot(gs[0, 0])   # (a) Standard MK   — top-left
+    ax_b = fig.add_subplot(gs[0, 1])   # (b) Modified MK   — top-right
+    ax_c = fig.add_subplot(gs[1, 0])   # (c) PW-MK         — middle-left
+    ax_e = fig.add_subplot(gs[1, 1])   # (e) Sen's Slope   — middle-right
+    ax_d = fig.add_subplot(gs[2, 0])   # (d) TFPW-MK       — bottom-left
+    # gs[2, 1] intentionally not created — bottom-right left empty
 
     return ax_a, ax_b, ax_c, ax_d, ax_e
 
