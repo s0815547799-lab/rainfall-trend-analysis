@@ -16,7 +16,7 @@ Method selection employed Leave-One-Out Cross-Validation (LOOCV) applied to Modi
 
 | Scale | Method |
 |-------|--------|
-| Annual (Jan–Dec) | RBF |
+| Annual (Jan–Dec) | IDW |
 | Wet Season (May–Oct) | IDW |
 | Dry Season (Nov–Apr) | RBF |
 
@@ -24,11 +24,11 @@ Method selection employed Leave-One-Out Cross-Validation (LOOCV) applied to Modi
 
 | Variable | Method | RMSE | MAE | Bias | R² |
 |----------|--------|------|-----|------|-----|
-| MK_Z | RBF | 1.0771 | 0.8898 | -0.0441 | -0.1839 |
-| MMK_Z | RBF | 1.0484 | 0.8646 | -0.0482 | -0.1784 |
-| PW_Z | RBF | 0.9610 | 0.7920 | -0.0578 | -0.1352 |
-| TFPW_Z | RBF | 1.0196 | 0.8322 | -0.0571 | -0.1429 |
-| Sen_Slope | RBF | 5.0469 | 3.7344 | -0.2296 | -0.4344 |
+| MK_Z | IDW | 1.1079 | 0.9343 | -0.1134 | -0.2525 |
+| MMK_Z | IDW | 1.0837 | 0.9148 | -0.1165 | -0.2591 |
+| PW_Z | IDW | 1.0006 | 0.8266 | -0.1152 | -0.2308 |
+| TFPW_Z | IDW | 1.0545 | 0.8912 | -0.1180 | -0.2225 |
+| Sen_Slope | IDW | 4.9056 | 3.8996 | -0.4900 | -0.3551 |
 
 ### IDW vs RBF Comparison (reference: MMK_Z, Annual)
 

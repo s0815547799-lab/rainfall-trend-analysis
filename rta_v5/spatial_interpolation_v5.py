@@ -251,12 +251,44 @@ def idw_interpolate(
 def rbf_interpolate(
     points: np.ndarray, values: np.ndarray,
     xi: np.ndarray,
-    kernel: str    = "thin_plate_spline",
-    smoothing: float = 0.5,
+    kernel: str    = "cubic",
+    smoothing: float = 0.10,
 ) -> np.ndarray:
-    """RBF interpolation via scipy.interpolate.RBFInterpolator."""
+    """RBF interpolation via scipy.interpolate.RBFInterpolator.
+
+    Defaults use 'cubic' kernel (preserves local spatial variability better
+    than 'thin_plate_spline') with low smoothing (0.10) to prevent
+    over-regularisation of the spatial field.
+    """
     interp = RBFInterpolator(points, values, smoothing=smoothing, kernel=kernel)
     return interp(xi).ravel()
+
+
+def blend_interpolate(
+    points: np.ndarray, values: np.ndarray,
+    xi: np.ndarray,
+    idw_alpha: float = 0.28,
+    kernel: str      = "cubic",
+    smoothing: float = 0.08,
+) -> np.ndarray:
+    """Blend IDW (local fidelity) with RBF (smooth gradients).
+
+    The IDW component preserves station-scale spatial variability and prevents
+    artificial homogenisation in data-sparse sub-regions; the RBF component
+    provides smooth regional gradients free of Voronoi-edge artefacts.
+
+    Parameters
+    ----------
+    idw_alpha : weight of the IDW component (0-1).  Default 0.28 gives 28 %
+                IDW + 72 % RBF — enough local texture without bull's-eye halos.
+    """
+    idw_vals = idw_interpolate(points, values, xi, power=2.0)
+    try:
+        rbf_vals = rbf_interpolate(points, values, xi,
+                                   kernel=kernel, smoothing=smoothing)
+        return idw_alpha * idw_vals + (1.0 - idw_alpha) * rbf_vals
+    except Exception:
+        return idw_vals
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -296,8 +328,8 @@ def loocv(
             elif method == "RBF":
                 predicted[i] = rbf_interpolate(
                     points[mask], values[mask], points[[i]],
-                    kwargs.get("kernel", "thin_plate_spline"),
-                    kwargs.get("smoothing", 0.5),
+                    kwargs.get("kernel", "cubic"),
+                    kwargs.get("smoothing", 0.10),
                 )[0]
         except Exception:
             pass
@@ -332,7 +364,7 @@ def select_best(
     candidates: dict = {}
     for name, fn, kw in [
         ("IDW", idw_interpolate, {"power": 2.0}),
-        ("RBF", rbf_interpolate, {"kernel": "thin_plate_spline", "smoothing": 0.5}),
+        ("RBF", rbf_interpolate, {"kernel": "cubic", "smoothing": 0.10}),
     ]:
         try:
             cv = loocv(points, values, name, **kw)

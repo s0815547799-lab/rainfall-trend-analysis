@@ -34,6 +34,7 @@ from .spatial_interpolation_v5 import (
     make_boundary_mask,
     idw_interpolate,
     rbf_interpolate,
+    blend_interpolate,
     loocv,
     select_best,
     GRID_N,
@@ -80,18 +81,67 @@ def _draw_province(ax, polys, zorder: int = 5) -> None:
 # ── Interpolation helper ──────────────────────────────────────────────────────
 
 def _interp_masked(pts, vals, xi, gl, mask, method):
-    """Interpolate and apply province mask; returns (n,n) float array."""
+    """Blend IDW + RBF surface, then apply province mask.
+
+    Always uses the blend function for spatial realism (avoids over-smoothed
+    homogeneous fields from pure RBF and bull's-eye halos from pure IDW).
+    The `method` label from LOOCV controls the IDW blend weight: LOOCV-preferred
+    IDW gets alpha=0.35; RBF-preferred gets alpha=0.22.
+    """
     v  = vals.astype(float)
     ok = ~np.isnan(v)
     if ok.sum() < 3:
         return np.full(gl.shape, np.nan)
-    if method == "RBF":
-        zz = rbf_interpolate(pts[ok], v[ok], xi).reshape(gl.shape)
-    else:
-        zz = idw_interpolate(pts[ok], v[ok], xi).reshape(gl.shape)
+    idw_alpha = 0.35 if method == "IDW" else 0.22
+    zz = blend_interpolate(pts[ok], v[ok], xi, idw_alpha=idw_alpha).reshape(gl.shape)
     out = zz.astype(float)
     out[~mask] = np.nan
     return out
+
+
+def _make_z_cmap():
+    """Publication-grade diverging colormap for Z statistics.
+
+    Based on RdBu_r but with a cool neutral midpoint (#e6eaed) instead of
+    pure white — prevents the perceptually flat pale band at near-zero values
+    while preserving the red (increasing) / blue (decreasing) convention.
+    """
+    import matplotlib.colors as _mc
+    base  = matplotlib.colormaps["RdBu_r"]
+    N     = 256
+    rgba  = base(np.linspace(0, 1, N)).copy()
+    t_arr = np.linspace(0, 1, N)
+    # Gaussian weight: peaks at t=0.5, zero at t≈0.25 and t≈0.75
+    wt = np.exp(-((t_arr - 0.5) ** 2) / (2 * 0.13 ** 2)) * 0.20
+    neutral = np.array([0.85, 0.88, 0.93])   # cool neutral grey-blue
+    for ch in range(3):
+        rgba[:, ch] = np.clip(rgba[:, ch] * (1 - wt) + neutral[ch] * wt, 0, 1)
+    cmap = _mc.LinearSegmentedColormap.from_list("RdBu_pub", rgba, N=N)
+    cmap.set_bad("white")
+    return cmap
+
+
+def _make_slope_cmap():
+    """Publication-grade diverging colormap for Sen's slope.
+
+    Based on RdYlGn with slightly moderated extremes to prevent
+    oversaturation in regions with strong slope signals.
+    """
+    import matplotlib.colors as _mc
+    base  = matplotlib.colormaps["RdYlGn"]
+    N     = 256
+    rgba  = base(np.linspace(0, 1, N)).copy()
+    t_arr = np.linspace(0, 1, N)
+    # Slightly desaturate both extremes (< 0.12 and > 0.88)
+    wt_lo = np.clip((0.14 - t_arr) / 0.14, 0, 1) * 0.18
+    wt_hi = np.clip((t_arr - 0.86) / 0.14, 0, 1) * 0.18
+    wt    = wt_lo + wt_hi
+    mid   = np.array([0.88, 0.88, 0.88])
+    for ch in range(3):
+        rgba[:, ch] = np.clip(rgba[:, ch] * (1 - wt) + mid[ch] * wt, 0, 1)
+    cmap = _mc.LinearSegmentedColormap.from_list("RdYlGn_pub", rgba, N=N)
+    cmap.set_bad("white")
+    return cmap
 
 
 # ── Inset colorbar ────────────────────────────────────────────────────────────
@@ -117,8 +167,10 @@ def _add_inset_cbar(
     cbar.set_ticks(ticks)
     # Label above the bar — avoids collision with tick labels below
     cbar.ax.xaxis.set_label_position("top")
-    cbar.set_label(label, fontsize=5.0, fontfamily=FONT_SERIF, labelpad=2.0)
-    cbar.ax.tick_params(labelsize=4.0, length=2, pad=1.0, width=0.5)
+    cbar.set_label(label, fontsize=5.5, fontfamily=FONT_SERIF, labelpad=2.0)
+    cbar.ax.tick_params(labelsize=4.5, length=2.5, pad=1.2, width=0.5)
+    for tick_label in cbar.ax.get_xticklabels():
+        tick_label.set_fontfamily(FONT_SERIF)
 
     # Semi-transparent backing so the colorbar reads over any map colour
     axins.patch.set_facecolor("white")
@@ -211,10 +263,13 @@ def _add_inset_legend(ax) -> None:
     leg = ax.legend(
         handles=handles,
         loc="lower left",
+        bbox_to_anchor=(0.01, 0.01),
+        bbox_transform=ax.transAxes,
         fontsize=LAYOUT["leg_fontsize"],
-        framealpha=0.90, edgecolor="#888888",
-        handletextpad=0.30, labelspacing=0.35,
-        handlelength=0.9, borderpad=0.4,
+        framealpha=0.92, edgecolor="#888888",
+        handletextpad=0.40, labelspacing=0.42,
+        handlelength=1.1, borderpad=0.55,
+        borderaxespad=0.0,
     )
     leg.set_zorder(12)
     for text in leg.get_texts():
@@ -239,7 +294,7 @@ def _export_panel_standalone(
     an inset legend inside the map, and saves in all formats.
     """
     fig = plt.figure(figsize=(LAYOUT["sgl_fig_w"], LAYOUT["sgl_fig_h"]),
-                     constrained_layout=True)
+                     constrained_layout=False)
     ax = build_axes_single(fig)
     _draw_panel(
         ax, polys=polys, gl=gl, gt=gt, mask=mask, zz=zz,
@@ -405,8 +460,9 @@ def _draw_panel(
                             ha=ha, **_ann_kw)
 
     # ── Cartographic decorations ─────────────────────────────────────────────
-    ax.set_title(full_title, fontsize=7.5, pad=3.0,
-                 fontfamily=FONT_SERIF, loc="center")
+    ax.set_title(full_title, fontsize=8.0, pad=4.0,
+                 fontfamily=FONT_SERIF, loc="center",
+                 fontweight="medium")
 
     apply_global_panel_style(ax, xmin, xmax, ymin, ymax)
 
@@ -523,11 +579,9 @@ def fig_q1_spatial_trend_v5(
                                 for s in df["MK_sig"].values])
 
     # ── Colormap setup ────────────────────────────────────────────────────────
-    cmap_z = matplotlib.colormaps["RdBu_r"].copy()
-    cmap_z.set_bad("white")
+    cmap_z = _make_z_cmap()
+    cmap_s = _make_slope_cmap()
 
-    cmap_s = matplotlib.colormaps["RdYlGn"].copy()
-    cmap_s.set_bad("white")
     fin_s   = grids["slope"][mask & np.isfinite(grids["slope"])]
     slp_abs = float(
         np.ceil(max(np.abs(fin_s).max() if len(fin_s) else 5, 5) / 5) * 5
@@ -685,8 +739,7 @@ def fig_compare_v5(
     sig_arr_b = np.array([str(s) in ("*", "**") for s in df[sig_b].values])
 
     # Synchronized colormap and normalization
-    cmap_z = matplotlib.colormaps["RdBu_r"].copy()
-    cmap_z.set_bad("white")
+    cmap_z   = _make_z_cmap()
     z_ticks  = [-Z_VABS, 0.0, Z_VABS]
     z_thresh = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
 
@@ -788,8 +841,7 @@ def fig_single_v5(
     sig_arr = np.array([str(s) in ("*", "**") for s in df[sig_col].values])
 
     if is_slope:
-        cmap = matplotlib.colormaps["RdYlGn"].copy()
-        cmap.set_bad("white")
+        cmap   = _make_slope_cmap()
         fin    = grd[mask & np.isfinite(grd)]
         slpabs = float(np.ceil(max(np.abs(fin).max() if len(fin) else 5, 5) / 5) * 5)
         vmin, vmax = -slpabs, slpabs
@@ -797,8 +849,7 @@ def fig_single_v5(
         thresh = None
         cb_lbl = "mm yr⁻¹"
     else:
-        cmap = matplotlib.colormaps["RdBu_r"].copy()
-        cmap.set_bad("white")
+        cmap   = _make_z_cmap()
         vmin, vmax = -Z_VABS, Z_VABS
         ticks  = [-Z_VABS, 0.0, Z_VABS]
         thresh = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
@@ -810,7 +861,7 @@ def fig_single_v5(
                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
     fig = plt.figure(figsize=(LAYOUT["sgl_fig_w"], LAYOUT["sgl_fig_h"]),
-                     constrained_layout=True)
+                     constrained_layout=False)
     ax = build_axes_single(fig)
 
     _draw_panel(ax, zz=grd, z_vals=v, sig_arr=sig_arr,
@@ -923,8 +974,7 @@ def fig_4method_row_v5(
         _row_setup(comp4_df, coords_df, boundary_dir, scale_key)
     print(f"    Method: {method}")
 
-    cmap_z = matplotlib.colormaps["RdBu_r"].copy()
-    cmap_z.set_bad("white")
+    cmap_z   = _make_z_cmap()
     z_ticks  = [-Z_VABS, 0.0, Z_VABS]
     z_thresh = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
 
@@ -1001,8 +1051,7 @@ def fig_senslope_row_v5(
     gl, gt, xi = build_grid(xmin, xmax, ymin, ymax, GRID_N)
     mask        = make_boundary_mask(gl, gt, polys)
 
-    cmap_s = matplotlib.colormaps["RdYlGn"].copy()
-    cmap_s.set_bad("white")
+    cmap_s = _make_slope_cmap()
 
     panels: list[dict] = []
     global_vabs = 5.0

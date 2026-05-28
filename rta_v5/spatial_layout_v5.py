@@ -31,12 +31,12 @@ def apply_q1_typography() -> None:
         "font.family":          "serif",
         "font.serif":           [FONT_SERIF, "DejaVu Serif"],
         "mathtext.fontset":     "dejavuserif",
-        "axes.titlesize":       8,
-        "axes.titlepad":        3.0,
-        "axes.labelsize":       6.5,
-        "xtick.labelsize":      5.5,
-        "ytick.labelsize":      5.5,
-        "font.size":            7,
+        "axes.titlesize":       8.5,
+        "axes.titlepad":        4.0,
+        "axes.labelsize":       7.0,
+        "xtick.labelsize":      6.0,
+        "ytick.labelsize":      6.0,
+        "font.size":            7.5,
         "figure.titlesize":     9.5,
         "figure.titleweight":   "normal",
     })
@@ -51,7 +51,9 @@ C_DEC = "#B2182B"   # significant decreasing — dark red    (hydro convention)
 C_NS  = "#78909C"   # not significant        — grey        (neutral)
 
 # ── Colormap bounds ───────────────────────────────────────────────────────────
-Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
+Z_VABS = 3.0        # Z colormap saturation — headroom beyond ±2.576 prevents
+                    # oversaturation near strong-trend stations; threshold
+                    # markers at ±1.960 and ±2.576 remain on colorbar
 
 
 # ── Layout specification ──────────────────────────────────────────────────────
@@ -83,26 +85,25 @@ LAYOUT = {
     "row_sens_fig_h":  4.8,
     "dpi":       600,
     # Station markers
-    "stn_size":   75,      # base size (scatter s= units)
-    "tri_factor": 0.76,    # significant triangle = stn_size × tri_factor (−12%)
-    "tri_alpha":  0.88,    # significant triangle alpha
-    "ns_factor":  0.46,    # NS circle = stn_size × ns_factor (−8% vs prior 0.50)
-    "ns_alpha":   0.82,    # NS circle alpha (slightly reduced opacity)
+    "stn_size":   78,      # base size (scatter s= units)
+    "tri_factor": 0.76,    # significant triangle = stn_size × tri_factor
+    "tri_alpha":  0.90,    # significant triangle alpha
+    "ns_factor":  0.46,    # NS circle = stn_size × ns_factor
+    "ns_alpha":   0.82,    # NS circle alpha
     # Province outline
     "poly_lw":   0.70,
     "poly_color":"#222222",
     # Inset colorbar geometry (per-panel, axes-fraction coords)
-    # Raised + narrowed: ticks/labels clear of x-axis label zone
-    "cbar_x0":   0.680,
-    "cbar_y0":   0.085,    # raised from 0.065 → ample clearance
-    "cbar_w":    0.295,
-    "cbar_h":    0.045,    # reduced from 0.050
+    "cbar_x0":   0.672,
+    "cbar_y0":   0.088,
+    "cbar_w":    0.302,
+    "cbar_h":    0.048,
     # Figure-level legend (shared across all figure types)
     "leg_x0":         0.04,
     "leg_y0":         0.012,
-    "leg_fontsize":   5.0,
-    "leg_marker_tri": 6.5,  # significant trend triangle marker size
-    "leg_marker_cir": 4.5,  # not-significant circle marker size
+    "leg_fontsize":   6.5,   # enlarged for print readability (was 5.0)
+    "leg_marker_tri": 8.0,   # significant trend triangle marker (was 6.5)
+    "leg_marker_cir": 6.0,   # not-significant circle marker (was 4.5)
 }
 
 
@@ -166,12 +167,19 @@ def build_axes_single(fig):
     """
     Single-panel layout for standalone method figures.
 
+    Explicit margins maximise the map area in portrait orientation.
+    Calibrated for sgl_fig_w=4.5 in × sgl_fig_h=8.0 in with tick labels.
+
     Returns
     -------
     ax : the single map axes
     """
     from matplotlib.gridspec import GridSpec
-    gs = GridSpec(1, 1, figure=fig)
+    gs = GridSpec(
+        1, 1, figure=fig,
+        left=0.11, right=0.97,
+        top=0.92, bottom=0.06,
+    )
     return fig.add_subplot(gs[0, 0])
 
 
@@ -207,7 +215,7 @@ def build_row_layout(fig, n_cols: int) -> list:
 # ║  Cartographic decorations                                                ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-def north_arrow(ax, x: float = 0.91, y: float = 0.87,
+def north_arrow(ax, x: float = 0.88, y: float = 0.83,
                 length: float = 0.065, fontsize: float = 6.5) -> None:
     """Simple north arrow at axes-fraction coordinates (x, y)."""
     ax.annotate(
