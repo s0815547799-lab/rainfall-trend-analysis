@@ -96,8 +96,10 @@ def _add_inset_cbar(
 
     cbar = ax.figure.colorbar(sm, cax=axins, orientation="horizontal")
     cbar.set_ticks(ticks)
-    cbar.set_label(label, fontsize=5.0, fontfamily=FONT_SERIF, labelpad=1.5)
-    cbar.ax.tick_params(labelsize=4.5, length=2, pad=1.0, width=0.5)
+    # Label above the bar — avoids collision with tick labels below
+    cbar.ax.xaxis.set_label_position("top")
+    cbar.set_label(label, fontsize=5.0, fontfamily=FONT_SERIF, labelpad=2.0)
+    cbar.ax.tick_params(labelsize=4.0, length=2, pad=1.0, width=0.5)
 
     # Semi-transparent backing so the colorbar reads over any map colour
     axins.patch.set_facecolor("white")
@@ -226,7 +228,7 @@ def _draw_panel(
         extent=[xmin, xmax, ymin, ymax],
         origin="lower",
         cmap=cmap, vmin=vmin, vmax=vmax,
-        interpolation="bilinear",
+        interpolation="bicubic",   # smoother surface appearance (values unchanged)
         aspect="auto", zorder=1,
     )
 
@@ -234,20 +236,25 @@ def _draw_panel(
     _draw_province(ax, polys)
 
     # ── Station markers — colour = direction × significance ──────────────────
-    # Visual hierarchy: significant = full size triangle, NS = 50% grey circle
+    # Visual hierarchy:
+    #   Significant triangle — slightly reduced vs base, subtle dark edge, alpha<1
+    #   NS circle            — 50% of base size, plain grey
+    _tri_s  = LAYOUT["stn_size"] * LAYOUT["tri_factor"]
+    _tri_a  = LAYOUT["tri_alpha"]
+    _ns_s   = LAYOUT["stn_size"] * 0.50
+
     for lon, lat, z, sig in zip(lons, lats, z_vals, sig_arr):
         if np.isnan(z):
             continue
         if sig:
             marker, fc = ("^", C_INC) if z > 0 else ("v", C_DEC)
-            s = LAYOUT["stn_size"]
-            lw = 0.4
+            ax.scatter(lon, lat, marker=marker, s=_tri_s,
+                       c=fc, edgecolors="#333333", linewidths=0.5,
+                       alpha=_tri_a, zorder=7)
         else:
-            marker, fc = "o", C_NS
-            s = LAYOUT["stn_size"] * 0.50
-            lw = 0.3
-        ax.scatter(lon, lat, marker=marker, s=s,
-                   c=fc, edgecolors="white", linewidths=lw, zorder=7)
+            ax.scatter(lon, lat, marker="o", s=_ns_s,
+                       c=C_NS, edgecolors="white", linewidths=0.3,
+                       zorder=7)
 
     # ── Station ID labels — quadrant-aware offset to minimise overlaps ────────
     if station_ids is not None:
@@ -257,19 +264,21 @@ def _draw_panel(
             x_frac = (lon - xmin) / lon_range   # 0 = west,  1 = east
             y_frac = (lat - ymin) / lat_range   # 0 = south, 1 = north
 
-            # Inset colorbar zone: lower-right axes corner (x>0.62, y<0.18)
-            near_cbar = x_frac > 0.62 and y_frac < 0.18
-            # Eastern margin or upper-right (north-arrow zone: x>0.82, y>0.80)
-            right_side = x_frac > 0.72 or (x_frac > 0.82 and y_frac > 0.80)
+            # Inset colorbar zone: lower-right axes corner
+            near_cbar  = x_frac > 0.60 and y_frac < 0.20
+            # Eastern/north-arrow zone
+            right_side = x_frac > 0.70 or (x_frac > 0.80 and y_frac > 0.78)
+            # Coastal/south border — broader threshold to catch edge stations
+            south_edge = y_frac < 0.15
 
             if near_cbar:
-                dx, dy, ha = -5, 6, "right"    # push up-left, clear colorbar
+                dx, dy, ha = -6, 7, "right"    # up-left, clear colorbar
             elif right_side:
-                dx, dy, ha = -5, 3, "right"    # push left, clear east margin
-            elif y_frac < 0.10:
-                dx, dy, ha = 3, 7, "left"      # push up, clear south border
+                dx, dy, ha = -6, 4, "right"    # left, clear east margin
+            elif south_edge:
+                dx, dy, ha =  4, 8, "left"     # up, clear south/coastal border
             else:
-                dx, dy, ha = 4, 4, "left"      # default: upper-right
+                dx, dy, ha =  5, 5, "left"     # default upper-right
 
             ax.annotate(
                 str(stn_id)[-3:],   # last 3 chars — compact station code

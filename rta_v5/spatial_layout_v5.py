@@ -2,15 +2,14 @@
 rta_v5.spatial_layout_v5 — Figure layout constants, color palette, font
 setup, and cartographic decoration helpers for Q1 spatial maps.
 
-v5.2 refinements (in-place):
-  • constrained_layout=False; explicit GridSpec margins (restored 3×4 geometry)
-  • Shared horizontal colorbars at bottom (Z-stat + Sen slope)
-  • Trend classification legend at bottom-left
-  • Interpolation metadata text at bottom
-  • Station markers: red ^ = increase, blue v = decrease (matches RdBu_r)
-  • Geographic aspect-aware figure scaling via format_map_axes
-  • build_axes_compare() — 1×2 panel for side-by-side method comparisons
-  • build_axes_single()  — 1-panel for standalone method figures
+v5.4 refinements (in-place):
+  • 2×3 GridSpec — tighter wspace/hspace, reduced outer margins
+  • Inset colorbar raised + reduced (clear of x-axis label zone)
+  • Colorbar label placed above bar; tick fontsize reduced
+  • Row-figure bottom margin reduced (footnotes removed)
+  • North arrow reduced ~15%; linewidth reduced
+  • Station triangle size factor + alpha exposed as LAYOUT constants
+  • Raster rendering upgraded to bicubic (smoother appearance)
 
 All layout parameters live here so any figure change requires editing
 only this file.
@@ -76,16 +75,20 @@ LAYOUT = {
     "row_sens_fig_w": 15.5,
     "row_sens_fig_h":  4.8,
     "dpi":       600,
-    # Station marker (×1.5 from 50 → 75; NS remains 50% of this = 37.5)
-    "stn_size":  75,
+    # Station markers
+    "stn_size":   75,      # base size (scatter s= units)
+    "tri_factor": 0.87,    # significant triangle  = stn_size × tri_factor
+    "tri_alpha":  0.88,    # significant triangle alpha (softens vs raster)
+    # NS circle uses stn_size × 0.50 (defined inline in _draw_panel)
     # Province outline
     "poly_lw":   0.70,
     "poly_color":"#222222",
     # Inset colorbar geometry (per-panel, axes-fraction coords)
+    # cbar_y0 raised to clear x-axis label zone; cbar_h reduced ~19%
     "cbar_x0":   0.680,
-    "cbar_y0":   0.022,
+    "cbar_y0":   0.065,    # raised from 0.022 → clear of x-axis labels
     "cbar_w":    0.295,
-    "cbar_h":    0.062,
+    "cbar_h":    0.050,    # reduced from 0.062 (~19%)
 }
 
 
@@ -99,14 +102,14 @@ def build_axes(fig):
 
     Grid layout:
         Row 0:  (a) col 0  |  (b) col 1  |  (c) col 2
-        Row 1:  (d) col 0  |  (e) col 1  |  [legend/metadata] col 2
+        Row 1:  (d) col 0  |  (e) col 1  |  [legend] col 2
 
-    GridSpec: left=0.04 right=0.99 top=0.94 bottom=0.05
-              wspace=0.07  hspace=0.14
+    GridSpec: left=0.030 right=0.995 top=0.940 bottom=0.030
+              wspace=0.05  hspace=0.10
 
     Panel dimensions (approx.):
-        width  ≈ 2.66 in  (figure fraction 0.3026)
-        height ≈ 4.49 in  (figure fraction 0.4159)
+        width  ≈ 2.72 in  (figure fraction 0.3093)
+        height ≈ 4.59 in  (figure fraction 0.4250)
         aspect ≈ 1.687  ≈ province H/W (1.698) → ~99% fill
 
     Returns
@@ -118,9 +121,9 @@ def build_axes(fig):
     gs = GridSpec(
         2, 3, figure=fig,
         height_ratios=[1, 1],
-        hspace=0.14, wspace=0.07,
-        left=0.04, right=0.99,
-        top=0.94, bottom=0.05,
+        hspace=0.10, wspace=0.05,
+        left=0.030, right=0.995,
+        top=0.940, bottom=0.030,
     )
     ax_a   = fig.add_subplot(gs[0, 0])   # (a) Standard MK
     ax_b   = fig.add_subplot(gs[0, 1])   # (b) Modified MK
@@ -162,7 +165,9 @@ def build_row_layout(fig, n_cols: int) -> list:
     """
     1×n_cols row of map axes — locked row-figure geometry (15.5 × 4.8 in).
 
-    GridSpec: left=0.03 right=0.992 top=0.90 bottom=0.09 wspace=0.06
+    GridSpec: left=0.030 right=0.992 top=0.900 bottom=0.065 wspace=0.06
+
+    bottom reduced from 0.090 → 0.065 now that footer metadata is removed.
 
     Parameters
     ----------
@@ -177,7 +182,7 @@ def build_row_layout(fig, n_cols: int) -> list:
     gs = GridSpec(
         1, n_cols, figure=fig,
         left=0.030, right=0.992,
-        top=0.900, bottom=0.090,
+        top=0.900, bottom=0.065,
         wspace=0.06,
     )
     return [fig.add_subplot(gs[0, i]) for i in range(n_cols)]
@@ -188,13 +193,13 @@ def build_row_layout(fig, n_cols: int) -> list:
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 def north_arrow(ax, x: float = 0.91, y: float = 0.86,
-                length: float = 0.09, fontsize: float = 6.5) -> None:
+                length: float = 0.077, fontsize: float = 6.5) -> None:
     """Simple north arrow at axes-fraction coordinates (x, y)."""
     ax.annotate(
         "", xy=(x, y + length), xytext=(x, y),
         xycoords="axes fraction",
         arrowprops=dict(arrowstyle="-|>", color="#111111",
-                        lw=0.9, mutation_scale=8),
+                        lw=0.75, mutation_scale=8),
     )
     ax.text(x, y + length + 0.028, "N",
             transform=ax.transAxes, ha="center", va="bottom",
