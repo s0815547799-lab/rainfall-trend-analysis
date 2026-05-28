@@ -1,19 +1,16 @@
 """
-rta_v5.spatial_publication_q1_v5 — Refined Q1 publication-grade spatial map.
+rta_v5.spatial_publication_q1_v5 — Q1 publication-grade spatial map.
 
-5-panel layout — original balanced arrangement (3×4 GridSpec):
-    (a) Standard MK   │  (b) Modified MK
-    (c) PW-MK         │  (d) TFPW-MK
-              (e) Sen's Slope   ← lower-right, cols 2:4
+6-axes layout — 2×3 GridSpec (8.8 × 10.8 in):
+    Row 0: (a) Standard MK  │  (b) Modified MK  │  (c) PW-MK
+    Row 1: (d) TFPW-MK      │  (e) Sen's Slope  │  [legend/metadata]
 
-v5.2 refinements (in-place):
-  • constrained_layout=False; explicit GridSpec with bottom=0.16 margin
-  • Shared horizontal Z-stat colorbar + shared Sen slope colorbar at bottom
-  • Trend classification legend (▲ ▼ ● with significance labels)
-  • Interpolation metadata text (method, grid, mask)
-  • bbox_inches='tight', pad_inches=0.04
-  • Station markers: red ^ = increase, blue v = decrease (matches RdBu_r)
-  • Single-line panel titles
+v5.3 refinements (in-place):
+  • 2×3 GridSpec — province aspect ~99% panel fill (ratio 1.687 ≈ 1.698)
+  • Per-panel inset colorbars (constrained_layout=False; explicit margins)
+  • Symbol visual hierarchy: sig=full triangle, NS=50% grey circle
+  • Station markers: green ^ = increasing, red v = decreasing (hydro convention)
+  • Legend + metadata rendered into dedicated bottom-right axes cell
   • Geographic aspect via format_map_axes
 """
 
@@ -152,6 +149,57 @@ def _add_figure_metadata(fig, method_name: str,
     )
 
 
+def _draw_legend_panel(ax, method_name: str) -> None:
+    """Legend + metadata rendered directly into the bottom-right axes cell."""
+    ax.set_axis_off()
+
+    handles = [
+        Line2D([0], [0], marker="^", linestyle="none",
+               markerfacecolor=C_INC, markeredgecolor="white",
+               markeredgewidth=0.5, markersize=8,
+               label="Increasing  (p < 0.05)"),
+        Line2D([0], [0], marker="v", linestyle="none",
+               markerfacecolor=C_DEC, markeredgecolor="white",
+               markeredgewidth=0.5, markersize=8,
+               label="Decreasing  (p < 0.05)"),
+        Line2D([0], [0], marker="o", linestyle="none",
+               markerfacecolor=C_NS, markeredgecolor="white",
+               markeredgewidth=0.4, markersize=5,
+               label="Not significant"),
+    ]
+
+    leg = ax.legend(
+        handles=handles,
+        loc="upper center",
+        bbox_to_anchor=(0.50, 0.90),
+        bbox_transform=ax.transAxes,
+        ncol=1, fontsize=7.0,
+        framealpha=0.0, edgecolor="none",
+        handletextpad=0.6,
+        handlelength=1.5,
+        title="Trend Direction",
+        title_fontsize=7.5,
+    )
+    leg.get_title().set_fontfamily(FONT_SERIF)
+    leg.get_title().set_fontweight("bold")
+    for text in leg.get_texts():
+        text.set_fontfamily(FONT_SERIF)
+
+    ax.text(0.50, 0.22,
+            f"Interpolation: {method_name}\nGrid: {GRID_N}×{GRID_N} cells",
+            transform=ax.transAxes,
+            ha="center", va="center",
+            fontsize=6.0, color="#555555",
+            fontfamily=FONT_SERIF,
+            linespacing=1.6)
+
+    # Subtle border
+    for sp in ax.spines.values():
+        sp.set_visible(True)
+        sp.set_edgecolor("#cccccc")
+        sp.set_linewidth(0.4)
+
+
 # ── Single panel renderer ─────────────────────────────────────────────────────
 
 def _draw_panel(
@@ -194,15 +242,20 @@ def _draw_panel(
     _draw_province(ax, polys)
 
     # ── Station markers — colour = direction × significance ──────────────────
+    # Visual hierarchy: significant = full size triangle, NS = 50% grey circle
     for lon, lat, z, sig in zip(lons, lats, z_vals, sig_arr):
         if np.isnan(z):
             continue
         if sig:
             marker, fc = ("^", C_INC) if z > 0 else ("v", C_DEC)
+            s = LAYOUT["stn_size"]
+            lw = 0.4
         else:
             marker, fc = "o", C_NS
-        ax.scatter(lon, lat, marker=marker, s=LAYOUT["stn_size"],
-                   c=fc, edgecolors="white", linewidths=0.4, zorder=7)
+            s = LAYOUT["stn_size"] * 0.50
+            lw = 0.3
+        ax.scatter(lon, lat, marker=marker, s=s,
+                   c=fc, edgecolors="white", linewidths=lw, zorder=7)
 
     # ── Station ID labels — small text offset from marker centre ─────────────
     if station_ids is not None:
@@ -353,10 +406,12 @@ def fig_q1_spatial_trend_v5(
     z_thresh    = [(-1.960, "--"), (1.960, "--"), (-2.576, ":"), (2.576, ":")]
     slope_ticks = [-slp_abs, 0.0, slp_abs]
 
-    # ── Figure: original balanced 3×4 GridSpec, constrained_layout=False ─────
+    # ── Figure: 2×3 GridSpec, constrained_layout=False ───────────────────────
+    # Row 0: (a) Standard MK | (b) Modified MK | (c) PW-MK
+    # Row 1: (d) TFPW-MK    | (e) Sen's Slope | [legend/metadata]
     fig = plt.figure(figsize=(LAYOUT["fig_w"], LAYOUT["fig_h"]),
                      constrained_layout=False)
-    ax_a, ax_b, ax_c, ax_d, ax_e = build_axes(fig)
+    ax_a, ax_b, ax_c, ax_d, ax_e, ax_leg = build_axes(fig)
 
     # Shared geographic kwargs (station_ids → labels rendered inside every panel)
     geo = dict(polys=polys, gl=gl, gt=gt, mask=mask,
@@ -396,6 +451,9 @@ def fig_q1_spatial_trend_v5(
                 cb_thresholds=None,
                 **geo)
 
+    # Legend + metadata panel (bottom-right)
+    _draw_legend_panel(ax_leg, best_name)
+
     # ── Suptitle ──────────────────────────────────────────────────────────────
     scale_short = {
         "Annual (Jan–Dec)":     "Annual (Jan–Dec)",
@@ -405,12 +463,8 @@ def fig_q1_spatial_trend_v5(
 
     fig.suptitle(
         f"Spatial Rainfall Trend Distribution — {scale_short}  |  {period}",
-        fontsize=9.5, fontfamily=FONT_SERIF, y=0.985,
+        fontsize=9.5, fontfamily=FONT_SERIF, y=0.975,
     )
-
-    # ── Shared figure-level annotations ─────────────────────────────────────
-    _add_figure_legend(fig, x0=0.07, y0=0.01)
-    _add_figure_metadata(fig, best_name, x1=0.97, y0=0.01)
 
     # ── Save ──────────────────────────────────────────────────────────────────
     out_dir = Path(out_dir)

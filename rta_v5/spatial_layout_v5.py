@@ -39,10 +39,10 @@ def setup_fonts() -> None:
     })
 
 
-# ── Colors — ColorBrewer RdBu extremes (match background colormap) ───────────
-C_INC = "#B2182B"   # significant increasing — dark red   (RdBu positive extreme)
-C_DEC = "#2166AC"   # significant decreasing — dark blue  (RdBu negative extreme)
-C_NS  = "#78909C"   # not significant        — grey       (neutral)
+# ── Colors — hydrological/climatological convention ──────────────────────────
+C_INC = "#1B7837"   # significant increasing — dark green  (hydro convention)
+C_DEC = "#B2182B"   # significant decreasing — dark red    (hydro convention)
+C_NS  = "#78909C"   # not significant        — grey        (neutral)
 
 # ── Colormap bounds ───────────────────────────────────────────────────────────
 Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
@@ -77,7 +77,7 @@ LAYOUT = {
     "row_sens_fig_h":  4.8,
     "dpi":       600,
     # Station marker
-    "stn_size":  55,
+    "stn_size":  50,
     # Province outline
     "poly_lw":   0.70,
     "poly_color":"#222222",
@@ -95,36 +95,41 @@ LAYOUT = {
 
 def build_axes(fig):
     """
-    5-panel map axes — locked publication geometry (8.8 × 10.8 in).
+    6-axes publication layout — 2×3 GridSpec (8.8 × 10.8 in).
 
     Grid layout:
-        Row 0:  (a) cols 0:2   |  (b) cols 2:4
-        Row 1:  (c) cols 0:2   |  (d) cols 2:4
-        Row 2:        (e) cols 1:3   ← centred
+        Row 0:  (a) col 0  |  (b) col 1  |  (c) col 2
+        Row 1:  (d) col 0  |  (e) col 1  |  [legend/metadata] col 2
 
-    GridSpec: left=0.045 right=0.985 top=0.955 bottom=0.055
-              wspace=0.08  hspace=0.16
+    GridSpec: left=0.04 right=0.99 top=0.94 bottom=0.05
+              wspace=0.07  hspace=0.14
+
+    Panel dimensions (approx.):
+        width  ≈ 2.66 in  (figure fraction 0.3026)
+        height ≈ 4.49 in  (figure fraction 0.4159)
+        aspect ≈ 1.687  ≈ province H/W (1.698) → ~99% fill
 
     Returns
     -------
-    ax_a, ax_b, ax_c, ax_d, ax_e : map axes
+    ax_a, ax_b, ax_c, ax_d, ax_e, ax_leg
     """
     from matplotlib.gridspec import GridSpec
 
     gs = GridSpec(
-        3, 4, figure=fig,
-        height_ratios=[1, 1, 1],
-        hspace=0.16, wspace=0.08,
-        left=0.045, right=0.985,
-        top=0.955, bottom=0.055,
+        2, 3, figure=fig,
+        height_ratios=[1, 1],
+        hspace=0.14, wspace=0.07,
+        left=0.04, right=0.99,
+        top=0.94, bottom=0.05,
     )
-    ax_a = fig.add_subplot(gs[0, 0:2])   # (a) Standard MK
-    ax_b = fig.add_subplot(gs[0, 2:4])   # (b) Modified MK
-    ax_c = fig.add_subplot(gs[1, 0:2])   # (c) PW-MK
-    ax_d = fig.add_subplot(gs[1, 2:4])   # (d) TFPW-MK
-    ax_e = fig.add_subplot(gs[2, 1:3])   # (e) Sen's Slope — centred
+    ax_a   = fig.add_subplot(gs[0, 0])   # (a) Standard MK
+    ax_b   = fig.add_subplot(gs[0, 1])   # (b) Modified MK
+    ax_c   = fig.add_subplot(gs[0, 2])   # (c) PW-MK
+    ax_d   = fig.add_subplot(gs[1, 0])   # (d) TFPW-MK
+    ax_e   = fig.add_subplot(gs[1, 1])   # (e) Sen's Slope
+    ax_leg = fig.add_subplot(gs[1, 2])   # legend / metadata
 
-    return ax_a, ax_b, ax_c, ax_d, ax_e
+    return ax_a, ax_b, ax_c, ax_d, ax_e, ax_leg
 
 
 def build_axes_compare(fig):
