@@ -1,11 +1,11 @@
 ======================================================================
   SPATIAL TREND ANALYSIS — Q1 PUBLICATION METADATA
-  Generated: 2026-05-27 17:08
+  Generated: 2026-05-28 22:16
 ======================================================================
 
 BOUNDARY
   Source  : boundaries/current_boundary/boundary.shp
-  Polygons: 8
+  Polygons: 17
   Stations: 12
   Period  : 1981–2014
 
@@ -49,7 +49,7 @@ FIGURE DESIGN
   DPI         : 600
   Formats     : PNG, TIFF (LZW), PDF, SVG
   Font        : Times New Roman / DejaVu Serif (serif)
-  Grid        : 120×120
+  Grid        : 300×300
 
 STATION CLASSIFICATION  (shown in figure caption, not in figure body)
   ▲ green  — Increasing,  p < 0.05
