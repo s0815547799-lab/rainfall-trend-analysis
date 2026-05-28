@@ -39,11 +39,12 @@ from .spatial_interpolation_v5 import (
     GRID_N,
 )
 from .spatial_layout_v5 import (
-    setup_fonts,
+    apply_q1_typography, setup_fonts,
     LAYOUT, FONT_SERIF,
     C_INC, C_DEC, C_NS, Z_VABS,
     build_axes, build_axes_compare, build_axes_single, build_row_layout,
     north_arrow, scale_bar, panel_letter, format_map_axes,
+    apply_global_panel_style,
 )
 from .spatial_export_v5 import save_formats
 
@@ -132,23 +133,27 @@ def _add_inset_cbar(
 
 # ── Shared figure-level annotation helpers ────────────────────────────────────
 
-def _add_figure_legend(fig, x0: float = 0.07, y0: float = 0.01) -> None:
+def _add_figure_legend(fig, x0: float | None = None, y0: float | None = None) -> None:
     """Trend classification legend at figure bottom-left (shared by all figure types)."""
+    _x0 = x0 if x0 is not None else LAYOUT["leg_x0"]
+    _y0 = y0 if y0 is not None else LAYOUT["leg_y0"]
+    _ms_tri = LAYOUT["leg_marker_tri"]
+    _ms_cir = LAYOUT["leg_marker_cir"]
     handles = [
         Line2D([0], [0], marker="^", linestyle="none",
                markerfacecolor=C_INC, markeredgecolor="white",
-               markersize=6, label="Increasing  (p < 0.05)"),
+               markersize=_ms_tri, label="Increasing  (p < 0.05)"),
         Line2D([0], [0], marker="v", linestyle="none",
                markerfacecolor=C_DEC, markeredgecolor="white",
-               markersize=6, label="Decreasing  (p < 0.05)"),
+               markersize=_ms_tri, label="Decreasing  (p < 0.05)"),
         Line2D([0], [0], marker="o", linestyle="none",
                markerfacecolor=C_NS, markeredgecolor="white",
-               markersize=6, label="Not significant"),
+               markersize=_ms_cir, label="Not significant"),
     ]
     fig.legend(
         handles=handles, loc="lower left",
-        bbox_to_anchor=(x0, y0), bbox_transform=fig.transFigure,
-        ncol=3, fontsize=5.0, framealpha=0.88,
+        bbox_to_anchor=(_x0, _y0), bbox_transform=fig.transFigure,
+        ncol=3, fontsize=LAYOUT["leg_fontsize"], framealpha=0.88,
         edgecolor="#999999", handletextpad=0.35,
         columnspacing=0.7, handlelength=0.9,
         borderpad=0.4,
@@ -166,22 +171,35 @@ def _add_figure_metadata(fig, method_name: str,
     )
 
 
+def _finalize_figure(fig, out_dir, stem: str, dpi: int,
+                     add_legend: bool = True,
+                     legend_x0: float | None = None,
+                     legend_y0: float | None = None) -> None:
+    """Add optional figure-level legend, save all formats, and close figure."""
+    if add_legend:
+        _add_figure_legend(fig, x0=legend_x0, y0=legend_y0)
+    save_formats(fig, Path(out_dir), stem, dpi)
+    plt.close(fig)
+
+
 def _draw_legend_panel(ax) -> None:
     """Symbol legend rendered directly into the bottom-right axes cell."""
     ax.set_axis_off()
 
+    _ms_tri = LAYOUT["leg_marker_tri"] + 1
+    _ms_cir = LAYOUT["leg_marker_cir"] + 0.5
     handles = [
         Line2D([0], [0], marker="^", linestyle="none",
                markerfacecolor=C_INC, markeredgecolor="white",
-               markeredgewidth=0.5, markersize=8,
+               markeredgewidth=0.5, markersize=_ms_tri,
                label="Increasing  (p < 0.05)"),
         Line2D([0], [0], marker="v", linestyle="none",
                markerfacecolor=C_DEC, markeredgecolor="white",
-               markeredgewidth=0.5, markersize=8,
+               markeredgewidth=0.5, markersize=_ms_tri,
                label="Decreasing  (p < 0.05)"),
         Line2D([0], [0], marker="o", linestyle="none",
                markerfacecolor=C_NS, markeredgecolor="white",
-               markeredgewidth=0.4, markersize=5,
+               markeredgewidth=0.4, markersize=_ms_cir,
                label="Not significant"),
     ]
 
@@ -190,7 +208,7 @@ def _draw_legend_panel(ax) -> None:
         loc="upper center",
         bbox_to_anchor=(0.50, 0.90),
         bbox_transform=ax.transAxes,
-        ncol=1, fontsize=6.5,
+        ncol=1, fontsize=LAYOUT["leg_fontsize"] + 1.5,
         framealpha=0.0, edgecolor="none",
         handletextpad=0.5,
         handlelength=1.4,
@@ -314,13 +332,10 @@ def _draw_panel(
                             ha=ha, **_ann_kw)
 
     # ── Cartographic decorations ─────────────────────────────────────────────
-    north_arrow(ax)
-    scale_bar(ax, xmin, xmax, ymin, ymax, km=25)
-
     ax.set_title(full_title, fontsize=7.5, pad=3.0,
                  fontfamily=FONT_SERIF, loc="center")
 
-    format_map_axes(ax, xmin, xmax, ymin, ymax)
+    apply_global_panel_style(ax, xmin, xmax, ymin, ymax)
 
     # ── Per-panel inset colorbar ─────────────────────────────────────────────
     if draw_inset_cbar:
@@ -361,7 +376,7 @@ def fig_q1_spatial_trend_v5(
     best_name    : 'IDW' | 'RBF'
     all_metrics  : {method: {RMSE, MAE, Bias, R2}}
     """
-    setup_fonts()
+    apply_q1_typography()
 
     # ── Boundary ────────────────────────────────────────────────────────────
     polys = load_boundary(boundary_dir)
@@ -512,8 +527,7 @@ def fig_q1_spatial_trend_v5(
 
     # ── Save ──────────────────────────────────────────────────────────────────
     out_dir = Path(out_dir)
-    save_formats(fig, out_dir, stem, dpi)
-    plt.close(fig)
+    _finalize_figure(fig, out_dir, stem, dpi, add_legend=False)
 
     return loocv_rows, best_name, all_metrics
 
@@ -542,7 +556,7 @@ def fig_compare_v5(
     Both panels share identical Z-stat colormap, normalization, and
     significance symbology for direct visual comparison.
     """
-    setup_fonts()
+    apply_q1_typography()
 
     polys = load_boundary(boundary_dir)
     xmin, xmax, ymin, ymax = boundary_extent(polys)
@@ -609,10 +623,7 @@ def fig_compare_v5(
         f"Method Comparison — {scale_short}  |  {period}",
         fontsize=9.5, fontfamily=FONT_SERIF,
     )
-    _add_figure_legend(fig, x0=0.07, y0=0.01)
-
-    save_formats(fig, Path(out_dir), stem, dpi)
-    plt.close(fig)
+    _finalize_figure(fig, out_dir, stem, dpi, add_legend=True, legend_x0=0.07)
 
 
 # ── Single-method figure ──────────────────────────────────────────────────────
@@ -636,7 +647,7 @@ def fig_single_v5(
 
     Portrait orientation, province-shape-aware aspect.
     """
-    setup_fonts()
+    apply_q1_typography()
 
     polys = load_boundary(boundary_dir)
     xmin, xmax, ymin, ymax = boundary_extent(polys)
@@ -708,10 +719,7 @@ def fig_single_v5(
         f"{scale_short}  |  {period}",
         fontsize=9.0, fontfamily=FONT_SERIF,
     )
-    _add_figure_legend(fig, x0=0.07, y0=0.01)
-
-    save_formats(fig, Path(out_dir), stem, dpi)
-    plt.close(fig)
+    _finalize_figure(fig, out_dir, stem, dpi, add_legend=True, legend_x0=0.07)
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -798,7 +806,7 @@ def fig_4method_row_v5(
 
     All panels share Z-stat colormap; per-panel inset colorbars.
     """
-    setup_fonts()
+    apply_q1_typography()
     polys, df, stns, lons, lats, pts, gl, gt, xi, mask, xmin, xmax, ymin, ymax, method = \
         _row_setup(comp4_df, coords_df, boundary_dir, scale_key)
     print(f"    Method: {method}")
@@ -836,10 +844,7 @@ def fig_4method_row_v5(
         f"Four-Method MK Comparison — {scale_short}  |  {period}",
         fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
     )
-    _add_figure_legend(fig, x0=0.04, y0=0.01)
-
-    save_formats(fig, Path(out_dir), stem, dpi)
-    plt.close(fig)
+    _finalize_figure(fig, out_dir, stem, dpi, add_legend=True)
 
 
 # ── Sen's slope all-scales row ────────────────────────────────────────────────
@@ -859,7 +864,7 @@ def fig_senslope_row_v5(
 
     Panels share identical color scale (global |slope| max).
     """
-    setup_fonts()
+    apply_q1_typography()
 
     # Boundary and grid are the same for every scale
     polys = load_boundary(boundary_dir)
@@ -938,7 +943,4 @@ def fig_senslope_row_v5(
         f"Sen's Slope — All Temporal Scales  |  {period}",
         fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
     )
-    _add_figure_legend(fig, x0=0.04, y0=0.01)
-
-    save_formats(fig, Path(out_dir), stem, dpi)
-    plt.close(fig)
+    _finalize_figure(fig, out_dir, stem, dpi, add_legend=True)

@@ -25,17 +25,24 @@ import matplotlib.font_manager as fm
 _tnr_avail = any("Times New Roman" in f.name for f in fm.fontManager.ttflist)
 FONT_SERIF  = "Times New Roman" if _tnr_avail else "DejaVu Serif"
 
-def setup_fonts() -> None:
-    """Apply consistent font settings to rcParams."""
+def apply_q1_typography() -> None:
+    """Apply comprehensive Q1-publication font and layout settings to rcParams."""
     matplotlib.rcParams.update({
-        "font.family":        "serif",
-        "font.serif":         [FONT_SERIF, "DejaVu Serif"],
-        "axes.titlesize":     8,
-        "axes.labelsize":     6.5,
-        "xtick.labelsize":    5.5,
-        "ytick.labelsize":    5.5,
-        "font.size":          7,
+        "font.family":          "serif",
+        "font.serif":           [FONT_SERIF, "DejaVu Serif"],
+        "mathtext.fontset":     "dejavuserif",
+        "axes.titlesize":       8,
+        "axes.titlepad":        3.0,
+        "axes.labelsize":       6.5,
+        "xtick.labelsize":      5.5,
+        "ytick.labelsize":      5.5,
+        "font.size":            7,
+        "figure.titlesize":     9.5,
+        "figure.titleweight":   "normal",
     })
+
+# Backward-compatible alias
+setup_fonts = apply_q1_typography
 
 
 # ── Colors — hydrological/climatological convention ──────────────────────────
@@ -90,6 +97,12 @@ LAYOUT = {
     "cbar_y0":   0.085,    # raised from 0.065 → ample clearance
     "cbar_w":    0.295,
     "cbar_h":    0.045,    # reduced from 0.050
+    # Figure-level legend (shared across all figure types)
+    "leg_x0":         0.04,
+    "leg_y0":         0.012,
+    "leg_fontsize":   5.0,
+    "leg_marker_tri": 6.5,  # significant trend triangle marker size
+    "leg_marker_cir": 4.5,  # not-significant circle marker size
 }
 
 
@@ -259,3 +272,12 @@ def format_map_axes(ax, xmin: float, xmax: float,
     # Province-shape-aware aspect: 1 km east = 1 km north
     lat_c = (ymin + ymax) / 2.0
     ax.set_aspect(1.0 / np.cos(np.radians(lat_c)))
+
+
+def apply_global_panel_style(ax, xmin: float, xmax: float,
+                              ymin: float, ymax: float,
+                              km: int = 25) -> None:
+    """Single call: format_map_axes + north_arrow + scale_bar for every panel."""
+    format_map_axes(ax, xmin, xmax, ymin, ymax)
+    north_arrow(ax)
+    scale_bar(ax, xmin, xmax, ymin, ymax, km=km)
