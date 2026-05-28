@@ -76,8 +76,8 @@ LAYOUT = {
     "row_sens_fig_w": 15.5,
     "row_sens_fig_h":  4.8,
     "dpi":       600,
-    # Station marker
-    "stn_size":  50,
+    # Station marker (×1.5 from 50 → 75; NS remains 50% of this = 37.5)
+    "stn_size":  75,
     # Province outline
     "poly_lw":   0.70,
     "poly_color":"#222222",

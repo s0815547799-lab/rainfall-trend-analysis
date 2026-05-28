@@ -149,8 +149,8 @@ def _add_figure_metadata(fig, method_name: str,
     )
 
 
-def _draw_legend_panel(ax, method_name: str) -> None:
-    """Legend + metadata rendered directly into the bottom-right axes cell."""
+def _draw_legend_panel(ax) -> None:
+    """Symbol legend rendered directly into the bottom-right axes cell."""
     ax.set_axis_off()
 
     handles = [
@@ -184,14 +184,6 @@ def _draw_legend_panel(ax, method_name: str) -> None:
     leg.get_title().set_fontweight("bold")
     for text in leg.get_texts():
         text.set_fontfamily(FONT_SERIF)
-
-    ax.text(0.50, 0.22,
-            f"Interpolation: {method_name}\nGrid: {GRID_N}×{GRID_N} cells",
-            transform=ax.transAxes,
-            ha="center", va="center",
-            fontsize=6.0, color="#555555",
-            fontfamily=FONT_SERIF,
-            linespacing=1.6)
 
     # Subtle border
     for sp in ax.spines.values():
@@ -257,14 +249,33 @@ def _draw_panel(
         ax.scatter(lon, lat, marker=marker, s=s,
                    c=fc, edgecolors="white", linewidths=lw, zorder=7)
 
-    # ── Station ID labels — small text offset from marker centre ─────────────
+    # ── Station ID labels — quadrant-aware offset to minimise overlaps ────────
     if station_ids is not None:
+        lon_range = max(xmax - xmin, 1e-6)
+        lat_range = max(ymax - ymin, 1e-6)
         for stn_id, lon, lat in zip(station_ids, lons, lats):
+            x_frac = (lon - xmin) / lon_range   # 0 = west,  1 = east
+            y_frac = (lat - ymin) / lat_range   # 0 = south, 1 = north
+
+            # Inset colorbar zone: lower-right axes corner (x>0.62, y<0.18)
+            near_cbar = x_frac > 0.62 and y_frac < 0.18
+            # Eastern margin or upper-right (north-arrow zone: x>0.82, y>0.80)
+            right_side = x_frac > 0.72 or (x_frac > 0.82 and y_frac > 0.80)
+
+            if near_cbar:
+                dx, dy, ha = -5, 6, "right"    # push up-left, clear colorbar
+            elif right_side:
+                dx, dy, ha = -5, 3, "right"    # push left, clear east margin
+            elif y_frac < 0.10:
+                dx, dy, ha = 3, 7, "left"      # push up, clear south border
+            else:
+                dx, dy, ha = 4, 4, "left"      # default: upper-right
+
             ax.annotate(
                 str(stn_id)[-3:],   # last 3 chars — compact station code
-                xy=(lon, lat), xytext=(4, 4), textcoords="offset points",
+                xy=(lon, lat), xytext=(dx, dy), textcoords="offset points",
                 fontsize=3.2, color="#111111", zorder=8,
-                fontfamily=FONT_SERIF,
+                fontfamily=FONT_SERIF, ha=ha,
                 bbox=dict(boxstyle="square,pad=0.05",
                           fc="white", ec="none", alpha=0.7),
             )
@@ -451,8 +462,8 @@ def fig_q1_spatial_trend_v5(
                 cb_thresholds=None,
                 **geo)
 
-    # Legend + metadata panel (bottom-right)
-    _draw_legend_panel(ax_leg, best_name)
+    # Legend panel (bottom-right)
+    _draw_legend_panel(ax_leg)
 
     # ── Suptitle ──────────────────────────────────────────────────────────────
     scale_short = {
@@ -566,7 +577,6 @@ def fig_compare_v5(
         fontsize=9.5, fontfamily=FONT_SERIF,
     )
     _add_figure_legend(fig, x0=0.07, y0=0.01)
-    _add_figure_metadata(fig, best_name, x1=0.97, y0=0.01)
 
     save_formats(fig, Path(out_dir), stem, dpi)
     plt.close(fig)
@@ -666,7 +676,6 @@ def fig_single_v5(
         fontsize=9.0, fontfamily=FONT_SERIF,
     )
     _add_figure_legend(fig, x0=0.07, y0=0.01)
-    _add_figure_metadata(fig, best_name, x1=0.97, y0=0.01)
 
     save_formats(fig, Path(out_dir), stem, dpi)
     plt.close(fig)
@@ -795,7 +804,6 @@ def fig_4method_row_v5(
         fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
     )
     _add_figure_legend(fig, x0=0.04, y0=0.01)
-    _add_figure_metadata(fig, method, x1=0.97, y0=0.01)
 
     save_formats(fig, Path(out_dir), stem, dpi)
     plt.close(fig)
@@ -898,7 +906,6 @@ def fig_senslope_row_v5(
         fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
     )
     _add_figure_legend(fig, x0=0.04, y0=0.01)
-    _add_figure_metadata(fig, method_label, x1=0.97, y0=0.01)
 
     save_formats(fig, Path(out_dir), stem, dpi)
     plt.close(fig)
