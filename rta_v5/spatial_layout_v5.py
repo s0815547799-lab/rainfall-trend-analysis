@@ -77,18 +77,19 @@ LAYOUT = {
     "dpi":       600,
     # Station markers
     "stn_size":   75,      # base size (scatter s= units)
-    "tri_factor": 0.87,    # significant triangle  = stn_size × tri_factor
-    "tri_alpha":  0.88,    # significant triangle alpha (softens vs raster)
-    # NS circle uses stn_size × 0.50 (defined inline in _draw_panel)
+    "tri_factor": 0.76,    # significant triangle = stn_size × tri_factor (−12%)
+    "tri_alpha":  0.88,    # significant triangle alpha
+    "ns_factor":  0.46,    # NS circle = stn_size × ns_factor (−8% vs prior 0.50)
+    "ns_alpha":   0.82,    # NS circle alpha (slightly reduced opacity)
     # Province outline
     "poly_lw":   0.70,
     "poly_color":"#222222",
     # Inset colorbar geometry (per-panel, axes-fraction coords)
-    # cbar_y0 raised to clear x-axis label zone; cbar_h reduced ~19%
+    # Raised + narrowed: ticks/labels clear of x-axis label zone
     "cbar_x0":   0.680,
-    "cbar_y0":   0.065,    # raised from 0.022 → clear of x-axis labels
+    "cbar_y0":   0.085,    # raised from 0.065 → ample clearance
     "cbar_w":    0.295,
-    "cbar_h":    0.050,    # reduced from 0.062 (~19%)
+    "cbar_h":    0.045,    # reduced from 0.050
 }
 
 
@@ -165,9 +166,10 @@ def build_row_layout(fig, n_cols: int) -> list:
     """
     1×n_cols row of map axes — locked row-figure geometry (15.5 × 4.8 in).
 
-    GridSpec: left=0.030 right=0.992 top=0.900 bottom=0.065 wspace=0.06
+    GridSpec: left=0.030 right=0.992 top=0.900 bottom=0.065 wspace=0.065
 
-    bottom reduced from 0.090 → 0.065 now that footer metadata is removed.
+    wspace increased 0.06→0.065 (+8%) to reduce crowding at panel borders.
+    bottom reduced from 0.090 → 0.065 (footer metadata removed).
 
     Parameters
     ----------
@@ -183,7 +185,7 @@ def build_row_layout(fig, n_cols: int) -> list:
         1, n_cols, figure=fig,
         left=0.030, right=0.992,
         top=0.900, bottom=0.065,
-        wspace=0.06,
+        wspace=0.065,
     )
     return [fig.add_subplot(gs[0, i]) for i in range(n_cols)]
 
@@ -192,14 +194,14 @@ def build_row_layout(fig, n_cols: int) -> list:
 # ║  Cartographic decorations                                                ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-def north_arrow(ax, x: float = 0.91, y: float = 0.86,
-                length: float = 0.077, fontsize: float = 6.5) -> None:
+def north_arrow(ax, x: float = 0.91, y: float = 0.87,
+                length: float = 0.065, fontsize: float = 6.5) -> None:
     """Simple north arrow at axes-fraction coordinates (x, y)."""
     ax.annotate(
         "", xy=(x, y + length), xytext=(x, y),
         xycoords="axes fraction",
         arrowprops=dict(arrowstyle="-|>", color="#111111",
-                        lw=0.75, mutation_scale=8),
+                        lw=0.65, mutation_scale=8),
     )
     ax.text(x, y + length + 0.028, "N",
             transform=ax.transAxes, ha="center", va="bottom",
@@ -247,7 +249,8 @@ def format_map_axes(ax, xmin: float, xmax: float,
     ax.set_yticklabels([f"{v:.1f}°N" for v in lat_ticks])
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
-    ax.tick_params(width=0.5, length=2, pad=1.5)
+    ax.tick_params(axis="y", width=0.5, length=2, pad=1.5)
+    ax.tick_params(axis="x", width=0.5, length=2, pad=3.0)  # extra pad clears colorbar
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
     for spine in ("left", "bottom"):

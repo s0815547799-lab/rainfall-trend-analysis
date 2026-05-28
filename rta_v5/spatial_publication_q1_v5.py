@@ -48,6 +48,20 @@ from .spatial_layout_v5 import (
 from .spatial_export_v5 import save_formats
 
 
+# ── Deterministic station label offsets (geographic degrees) ─────────────────
+# Key = last 3 chars of station ID.  Value = (dlon, dlat) in degrees.
+# Overrides quadrant-based fallback for known crowded stations.
+_STN_LABEL_OFFSETS: dict[str, tuple[float, float]] = {
+    "005": ( 0.010, -0.010),
+    "006": ( 0.012,  0.012),
+    "007": ( 0.010,  0.015),
+    "201": ( 0.012, -0.014),
+    "003": ( 0.010,  0.010),
+    "001": (-0.012,  0.008),
+    "202": (-0.014,  0.010),
+}
+
+
 # ── Province outline ──────────────────────────────────────────────────────────
 
 def _draw_province(ax, polys, zorder: int = 5) -> None:
@@ -134,9 +148,10 @@ def _add_figure_legend(fig, x0: float = 0.07, y0: float = 0.01) -> None:
     fig.legend(
         handles=handles, loc="lower left",
         bbox_to_anchor=(x0, y0), bbox_transform=fig.transFigure,
-        ncol=3, fontsize=5.5, framealpha=0.88,
-        edgecolor="#999999", handletextpad=0.4,
-        columnspacing=1.0, handlelength=1.0,
+        ncol=3, fontsize=5.0, framealpha=0.88,
+        edgecolor="#999999", handletextpad=0.35,
+        columnspacing=0.7, handlelength=0.9,
+        borderpad=0.4,
     )
 
 
@@ -175,15 +190,16 @@ def _draw_legend_panel(ax) -> None:
         loc="upper center",
         bbox_to_anchor=(0.50, 0.90),
         bbox_transform=ax.transAxes,
-        ncol=1, fontsize=7.0,
+        ncol=1, fontsize=6.5,
         framealpha=0.0, edgecolor="none",
-        handletextpad=0.6,
-        handlelength=1.5,
+        handletextpad=0.5,
+        handlelength=1.4,
+        labelspacing=0.55,
         title="Trend Direction",
-        title_fontsize=7.5,
+        title_fontsize=7.0,
     )
     leg.get_title().set_fontfamily(FONT_SERIF)
-    leg.get_title().set_fontweight("bold")
+    leg.get_title().set_fontweight("semibold")
     for text in leg.get_texts():
         text.set_fontfamily(FONT_SERIF)
 
@@ -228,7 +244,7 @@ def _draw_panel(
         extent=[xmin, xmax, ymin, ymax],
         origin="lower",
         cmap=cmap, vmin=vmin, vmax=vmax,
-        interpolation="bicubic",   # smoother surface appearance (values unchanged)
+        interpolation="lanczos",   # highest-quality resampling (values unchanged)
         aspect="auto", zorder=1,
     )
 
@@ -236,12 +252,12 @@ def _draw_panel(
     _draw_province(ax, polys)
 
     # ── Station markers — colour = direction × significance ──────────────────
-    # Visual hierarchy:
-    #   Significant triangle — slightly reduced vs base, subtle dark edge, alpha<1
-    #   NS circle            — 50% of base size, plain grey
-    _tri_s  = LAYOUT["stn_size"] * LAYOUT["tri_factor"]
-    _tri_a  = LAYOUT["tri_alpha"]
-    _ns_s   = LAYOUT["stn_size"] * 0.50
+    # Significant triangle: reduced size (tri_factor), white edge, alpha<1
+    # NS circle: slightly reduced (ns_factor), reduced opacity (ns_alpha)
+    _tri_s = LAYOUT["stn_size"] * LAYOUT["tri_factor"]
+    _tri_a = LAYOUT["tri_alpha"]
+    _ns_s  = LAYOUT["stn_size"] * LAYOUT["ns_factor"]
+    _ns_a  = LAYOUT["ns_alpha"]
 
     for lon, lat, z, sig in zip(lons, lats, z_vals, sig_arr):
         if np.isnan(z):
@@ -249,45 +265,53 @@ def _draw_panel(
         if sig:
             marker, fc = ("^", C_INC) if z > 0 else ("v", C_DEC)
             ax.scatter(lon, lat, marker=marker, s=_tri_s,
-                       c=fc, edgecolors="#333333", linewidths=0.5,
+                       c=fc, edgecolors="white", linewidths=0.4,
                        alpha=_tri_a, zorder=7)
         else:
             ax.scatter(lon, lat, marker="o", s=_ns_s,
                        c=C_NS, edgecolors="white", linewidths=0.3,
-                       zorder=7)
+                       alpha=_ns_a, zorder=7)
 
-    # ── Station ID labels — quadrant-aware offset to minimise overlaps ────────
+    # ── Station ID labels — deterministic dict + quadrant fallback ────────────
     if station_ids is not None:
         lon_range = max(xmax - xmin, 1e-6)
         lat_range = max(ymax - ymin, 1e-6)
+        _ann_kw = dict(fontsize=3.2, color="#111111", zorder=8,
+                       fontfamily=FONT_SERIF,
+                       bbox=dict(boxstyle="square,pad=0.05",
+                                 fc="white", ec="none", alpha=0.7))
+
         for stn_id, lon, lat in zip(station_ids, lons, lats):
-            x_frac = (lon - xmin) / lon_range   # 0 = west,  1 = east
-            y_frac = (lat - ymin) / lat_range   # 0 = south, 1 = north
+            key = str(stn_id)[-3:]
 
-            # Inset colorbar zone: lower-right axes corner
-            near_cbar  = x_frac > 0.60 and y_frac < 0.20
-            # Eastern/north-arrow zone
-            right_side = x_frac > 0.70 or (x_frac > 0.80 and y_frac > 0.78)
-            # Coastal/south border — broader threshold to catch edge stations
-            south_edge = y_frac < 0.15
-
-            if near_cbar:
-                dx, dy, ha = -6, 7, "right"    # up-left, clear colorbar
-            elif right_side:
-                dx, dy, ha = -6, 4, "right"    # left, clear east margin
-            elif south_edge:
-                dx, dy, ha =  4, 8, "left"     # up, clear south/coastal border
+            if key in _STN_LABEL_OFFSETS:
+                # Deterministic geographic offset — consistent across all panels
+                dlon, dlat = _STN_LABEL_OFFSETS[key]
+                ha = "right" if dlon < 0 else "left"
+                ax.annotate(key,
+                            xy=(lon, lat),
+                            xytext=(lon + dlon, lat + dlat),
+                            xycoords="data", textcoords="data",
+                            ha=ha, **_ann_kw)
             else:
-                dx, dy, ha =  5, 5, "left"     # default upper-right
-
-            ax.annotate(
-                str(stn_id)[-3:],   # last 3 chars — compact station code
-                xy=(lon, lat), xytext=(dx, dy), textcoords="offset points",
-                fontsize=3.2, color="#111111", zorder=8,
-                fontfamily=FONT_SERIF, ha=ha,
-                bbox=dict(boxstyle="square,pad=0.05",
-                          fc="white", ec="none", alpha=0.7),
-            )
+                # Quadrant-aware point-offset fallback for unlisted stations
+                x_frac = (lon - xmin) / lon_range
+                y_frac = (lat - ymin) / lat_range
+                near_cbar  = x_frac > 0.60 and y_frac < 0.20
+                right_side = x_frac > 0.70 or (x_frac > 0.80 and y_frac > 0.78)
+                south_edge = y_frac < 0.15
+                if near_cbar:
+                    dx, dy, ha = -6, 7, "right"
+                elif right_side:
+                    dx, dy, ha = -6, 4, "right"
+                elif south_edge:
+                    dx, dy, ha =  4, 8, "left"
+                else:
+                    dx, dy, ha =  5, 5, "left"
+                ax.annotate(key,
+                            xy=(lon, lat), xytext=(dx, dy),
+                            textcoords="offset points",
+                            ha=ha, **_ann_kw)
 
     # ── Cartographic decorations ─────────────────────────────────────────────
     north_arrow(ax)
