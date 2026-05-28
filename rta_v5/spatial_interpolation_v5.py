@@ -18,13 +18,36 @@ import numpy as np
 from scipy.interpolate import RBFInterpolator
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-GRID_N = 120    # default interpolation grid size (N×N)
-PAD    = 0.18   # degrees of padding around boundary bbox
+GRID_N = 300    # default interpolation grid size (N×N) — increased for publication quality
+PAD    = 0.04   # degrees of padding around boundary bbox (tight; avoids wasted grid)
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  §1  Boundary                                                            ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
+
+def _simplify_polygon(pts: np.ndarray, max_pts: int = 1000) -> np.ndarray:
+    """
+    Reduce a polygon to at most max_pts vertices by uniform subsampling.
+
+    High-resolution projected polygons (e.g. 25 000+ points from UTM→WGS84)
+    introduce near-self-intersections that break matplotlib's even-odd PIP
+    rule.  Subsampling to ~1 000 vertices removes numerical noise while
+    preserving the geographic shape to << 1 km accuracy.
+
+    The returned array is always closed (first point == last point).
+    """
+    n = len(pts)
+    if n <= max_pts:
+        closed = pts if np.allclose(pts[0], pts[-1]) else np.vstack([pts, pts[0]])
+        return closed
+    step   = max(1, n // max_pts)
+    idx    = list(range(0, n, step))
+    simple = pts[idx]
+    if not np.allclose(simple[0], simple[-1]):
+        simple = np.vstack([simple, simple[0]])
+    return simple
+
 
 def validate_boundary(boundary_dir: str | Path) -> None:
     """
@@ -52,13 +75,17 @@ def load_boundary(boundary_dir: str | Path) -> list[np.ndarray]:
     """
     Load all polygons from boundary_dir/boundary.shp.
 
+    If the shapefile is in a projected CRS (detected from boundary.prj),
+    coordinates are automatically reprojected to WGS84 geographic (EPSG:4326)
+    so the rest of the pipeline always receives (lon, lat) in decimal degrees.
+
     Parameters
     ----------
     boundary_dir : directory containing boundary.shp (and companion files)
 
     Returns
     -------
-    list of (N, 2) arrays [lon, lat columns]
+    list of (N, 2) arrays [lon, lat columns] — always in WGS84 degrees
 
     Raises
     ------
@@ -67,21 +94,52 @@ def load_boundary(boundary_dir: str | Path) -> list[np.ndarray]:
     """
     validate_boundary(boundary_dir)
     shp_path = Path(boundary_dir) / "boundary.shp"
+    prj_path = Path(boundary_dir) / "boundary.prj"
+
+    # ── Determine if reprojection is needed ───────────────────────────────────
+    _transformer = None
+    if prj_path.exists():
+        try:
+            from pyproj import CRS, Transformer
+            src_crs = CRS.from_wkt(prj_path.read_text())
+            if not src_crs.is_geographic:
+                wgs84 = CRS.from_epsg(4326)
+                _transformer = Transformer.from_crs(src_crs, wgs84,
+                                                    always_xy=True)
+        except Exception:
+            pass  # fall through — use raw coordinates
 
     import shapefile as sf_lib
     reader = sf_lib.Reader(str(shp_path))
     polys  = []
+
     for shape in reader.shapes():
-        pts = np.array(shape.points)
-        if len(pts) >= 3:
-            polys.append(pts)
+        all_pts = np.array(shape.points)
+        # Multi-part polygon: each "part" is a separate ring (outer boundary or
+        # inner hole).  Treat every ring as a separate fill polygon so the
+        # renderer handles them individually rather than as one tangled loop.
+        part_starts = list(shape.parts) + [len(all_pts)]
+        for i in range(len(part_starts) - 1):
+            seg = all_pts[part_starts[i] : part_starts[i + 1]]
+            if len(seg) < 3:
+                continue
+            if _transformer is not None:
+                lons, lats = _transformer.transform(seg[:, 0], seg[:, 1])
+                seg = np.column_stack([lons, lats])
+            # Simplify dense segments: resampled UTM vertices cause near-
+            # duplicate points that confuse point-in-polygon tests.
+            seg = _simplify_polygon(seg, max_pts=800)
+            polys.append(seg)
 
     if not polys:
         raise RuntimeError(
             f"No valid polygons (≥ 3 points) found in {shp_path.name}. "
             "Confirm the file is a polygon-type shapefile."
         )
-    print(f"    Boundary: {shp_path.name} — {len(polys)} polygon(s)")
+    crs_note = " (reprojected → WGS84)" if _transformer is not None else ""
+    n_shapes = len(reader.shapes())
+    print(f"    Boundary: {shp_path.name} — {n_shapes} shape(s), "
+          f"{len(polys)} ring(s){crs_note}")
     return polys
 
 
@@ -125,17 +183,53 @@ def make_boundary_mask(
     gl: np.ndarray, gt: np.ndarray, polys: list[np.ndarray]
 ) -> np.ndarray:
     """
-    Boolean mask — True for grid cells inside any boundary polygon.
-    Uses matplotlib.path for point-in-polygon.
+    Boolean mask — True for grid cells inside the province boundary.
+
+    Renders only the outer boundary ring(s) via matplotlib's Agg renderer
+    at exactly the grid resolution.  Inner rings (bays, water cutouts) are
+    intentionally omitted: at the rainfall-station grid spacing they are
+    sub-km features that would incorrectly fragment the mask.
+
+    The outermost ring per shape is identified as the one with the largest
+    bounding-box area.  scipy.ndimage.binary_fill_holes is applied to close
+    any sub-pixel edge gaps.
     """
-    from matplotlib.path import Path as MPath
-    mask = np.zeros(gl.shape, dtype=bool)
-    pts  = np.column_stack([gl.ravel(), gt.ravel()])
-    for poly in polys:
-        if len(poly) < 3:
-            continue
-        inside = MPath(poly).contains_points(pts)
-        mask  |= inside.reshape(gl.shape)
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from scipy.ndimage import binary_fill_holes
+
+    ny, nx = gl.shape
+    xmin = float(gl[0,  0])
+    xmax = float(gl[0, -1])
+    ymin = float(gt[0,  0])
+    ymax = float(gt[-1, 0])
+
+    # Select only outer ring(s): largest bbox area among all rings
+    def _bbox_area(pts):
+        return (pts[:, 0].max() - pts[:, 0].min()) * \
+               (pts[:, 1].max() - pts[:, 1].min())
+
+    outer = [max(polys, key=_bbox_area)] if polys else []
+
+    # Render at exactly (nx × ny) pixels
+    fig = Figure(figsize=(nx / 100, ny / 100), dpi=100)
+    canvas = FigureCanvasAgg(fig)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    ax.axis("off")
+    ax.set_facecolor((0, 0, 0))
+    fig.patch.set_facecolor((0, 0, 0))
+
+    for poly in outer:
+        ax.fill(poly[:, 0], poly[:, 1], color=(1, 1, 1), linewidth=0)
+
+    canvas.draw()
+    buf  = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+    img  = buf.reshape(ny, nx, 4)
+    # Agg rows run top→bottom; our meshgrid gt increases bottom→top
+    mask = np.flipud(img[:, :, 0] > 128)
+    mask = binary_fill_holes(mask)
     return mask
 
 

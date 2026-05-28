@@ -66,11 +66,15 @@ _STN_LABEL_OFFSETS: dict[str, tuple[float, float]] = {
 # ── Province outline ──────────────────────────────────────────────────────────
 
 def _draw_province(ax, polys, zorder: int = 5) -> None:
-    """Draw all boundary polygons (district outlines → province boundary)."""
-    for pts in polys:
-        ax.plot(pts[:, 0], pts[:, 1],
-                color=LAYOUT["poly_color"], lw=LAYOUT["poly_lw"],
-                solid_capstyle="round", zorder=zorder)
+    """Draw the outer boundary ring only (largest bbox area = province outline)."""
+    if not polys:
+        return
+    def _bbox_area(pts):
+        return (pts[:, 0].max() - pts[:, 0].min()) * (pts[:, 1].max() - pts[:, 1].min())
+    outer = max(polys, key=_bbox_area)
+    ax.plot(outer[:, 0], outer[:, 1],
+            color=LAYOUT["poly_color"], lw=LAYOUT["poly_lw"],
+            solid_capstyle="round", zorder=zorder)
 
 
 # ── Interpolation helper ──────────────────────────────────────────────────────
