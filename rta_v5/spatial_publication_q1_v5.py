@@ -186,6 +186,75 @@ def _finalize_figure(fig, out_dir, stem: str, dpi: int,
     plt.close(fig)
 
 
+def _add_inset_legend(ax) -> None:
+    """Compact trend-direction legend placed inside the map panel (lower-left).
+
+    Used for standalone single-panel figures to make them fully self-contained.
+    Positioned at lower-left to avoid the inset colorbar at lower-right.
+    """
+    _ms_tri = LAYOUT["leg_marker_tri"]
+    _ms_cir = LAYOUT["leg_marker_cir"]
+    handles = [
+        Line2D([0], [0], marker="^", linestyle="none",
+               markerfacecolor=C_INC, markeredgecolor="white",
+               markeredgewidth=0.4, markersize=_ms_tri,
+               label="Increasing (p<0.05)"),
+        Line2D([0], [0], marker="v", linestyle="none",
+               markerfacecolor=C_DEC, markeredgecolor="white",
+               markeredgewidth=0.4, markersize=_ms_tri,
+               label="Decreasing (p<0.05)"),
+        Line2D([0], [0], marker="o", linestyle="none",
+               markerfacecolor=C_NS, markeredgecolor="white",
+               markeredgewidth=0.3, markersize=_ms_cir,
+               label="Not significant"),
+    ]
+    leg = ax.legend(
+        handles=handles,
+        loc="lower left",
+        fontsize=LAYOUT["leg_fontsize"],
+        framealpha=0.90, edgecolor="#888888",
+        handletextpad=0.30, labelspacing=0.35,
+        handlelength=0.9, borderpad=0.4,
+    )
+    leg.set_zorder(12)
+    for text in leg.get_texts():
+        text.set_fontfamily(FONT_SERIF)
+
+
+def _export_panel_standalone(
+    out_dir: Path, stem: str, dpi: int,
+    polys, gl, gt, mask, zz,
+    cmap, vmin, vmax,
+    lons, lats, z_vals, sig_arr,
+    full_title: str,
+    cb_label: str, cb_ticks: list, cb_thresholds,
+    xmin: float, xmax: float, ymin: float, ymax: float,
+    station_ids=None,
+) -> None:
+    """
+    Export one map panel as a fully self-contained standalone figure.
+
+    Creates a new single-panel figure at sgl_fig_w × sgl_fig_h, renders the
+    panel (raster + province + stations + decorations + inset colorbar), adds
+    an inset legend inside the map, and saves in all formats.
+    """
+    fig = plt.figure(figsize=(LAYOUT["sgl_fig_w"], LAYOUT["sgl_fig_h"]),
+                     constrained_layout=True)
+    ax = build_axes_single(fig)
+    _draw_panel(
+        ax, polys=polys, gl=gl, gt=gt, mask=mask, zz=zz,
+        cmap=cmap, vmin=vmin, vmax=vmax,
+        lons=lons, lats=lats, z_vals=z_vals, sig_arr=sig_arr,
+        full_title=full_title, cb_label=cb_label,
+        cb_ticks=cb_ticks, cb_thresholds=cb_thresholds,
+        xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+        station_ids=station_ids,
+    )
+    _add_inset_legend(ax)
+    save_formats(fig, Path(out_dir), stem, dpi)
+    plt.close(fig)
+
+
 def _draw_legend_panel(ax) -> None:
     """Symbol legend rendered directly into the bottom-right axes cell."""
     ax.set_axis_off()
@@ -529,9 +598,29 @@ def fig_q1_spatial_trend_v5(
         fontsize=9.5, fontfamily=FONT_SERIF, y=0.975,
     )
 
-    # ── Save ──────────────────────────────────────────────────────────────────
+    # ── Save composite figure ────────────────────────────────────────────────
     out_dir = Path(out_dir)
     _finalize_figure(fig, out_dir, stem, dpi, add_legend=False)
+
+    # ── Standalone panel exports ─────────────────────────────────────────────
+    _panels = [
+        ("a", "Standard MK — Z Statistic",        grids["MK_Z"],   df["MK_Z"].values,   sigs["MK_Z"],   cmap_z, -Z_VABS, Z_VABS,    "Z",       z_ticks,     z_thresh),
+        ("b", "Modified MK (Hamed 1998) — Z",      grids["MMK_Z"],  df["MMK_Z"].values,  sigs["MMK_Z"],  cmap_z, -Z_VABS, Z_VABS,    "Z",       z_ticks,     z_thresh),
+        ("c", "PW-MK (Yue & Wang 2004) — Z",       grids["PW_Z"],   df["PW_Z"].values,   sigs["PW_Z"],   cmap_z, -Z_VABS, Z_VABS,    "Z",       z_ticks,     z_thresh),
+        ("d", "TFPW-MK (Yue et al. 2002) — Z",     grids["TFPW_Z"], df["TFPW_Z"].values, sigs["TFPW_Z"], cmap_z, -Z_VABS, Z_VABS,    "Z",       z_ticks,     z_thresh),
+        ("e", "Sen's Slope (mm yr⁻¹)",             grids["slope"],  slope_v,             slope_sig,      cmap_s, -slp_abs, slp_abs,  "mm yr⁻¹", slope_ticks, None),
+    ]
+    for letter, title, zz, z_vals, sig, cmap, vmin, vmax, cbl, ticks, thresh in _panels:
+        _export_panel_standalone(
+            out_dir=out_dir, stem=f"{stem}_panel_{letter}", dpi=dpi,
+            polys=polys, gl=gl, gt=gt, mask=mask, zz=zz,
+            cmap=cmap, vmin=vmin, vmax=vmax,
+            lons=lons, lats=lats, z_vals=z_vals, sig_arr=sig,
+            full_title=title, cb_label=cbl,
+            cb_ticks=ticks, cb_thresholds=thresh,
+            xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+            station_ids=stns,
+        )
 
     return loocv_rows, best_name, all_metrics
 
@@ -629,6 +718,23 @@ def fig_compare_v5(
     )
     _finalize_figure(fig, out_dir, stem, dpi, add_legend=True, legend_x0=0.07)
 
+    # ── Standalone panel exports ─────────────────────────────────────────────
+    _pair = [
+        ("a", title_a, grid_a, va, sig_arr_a),
+        ("b", title_b, grid_b, vb, sig_arr_b),
+    ]
+    for letter, title, zz, z_vals, sig in _pair:
+        _export_panel_standalone(
+            out_dir=Path(out_dir), stem=f"{stem}_panel_{letter}", dpi=dpi,
+            polys=polys, gl=gl, gt=gt, mask=mask, zz=zz,
+            cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
+            lons=lons, lats=lats, z_vals=z_vals, sig_arr=sig,
+            full_title=title, cb_label="Z",
+            cb_ticks=z_ticks, cb_thresholds=z_thresh,
+            xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+            station_ids=stns,
+        )
+
 
 # ── Single-method figure ──────────────────────────────────────────────────────
 
@@ -723,7 +829,9 @@ def fig_single_v5(
         f"{scale_short}  |  {period}",
         fontsize=9.0, fontfamily=FONT_SERIF,
     )
-    _finalize_figure(fig, out_dir, stem, dpi, add_legend=True, legend_x0=0.07)
+    # Standalone figure: inset legend inside the map panel (fully self-contained)
+    _add_inset_legend(ax)
+    _finalize_figure(fig, out_dir, stem, dpi, add_legend=False)
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -850,6 +958,23 @@ def fig_4method_row_v5(
     )
     _finalize_figure(fig, out_dir, stem, dpi, add_legend=True)
 
+    # ── Standalone panel exports ─────────────────────────────────────────────
+    for col, sig_col, title in specs:
+        vals = df[col].values.astype(float)
+        sig  = np.array([str(s) in ("*", "**") for s in df[sig_col].values])
+        zz   = _interp_masked(pts, vals, xi, gl, mask, method)
+        _export_panel_standalone(
+            out_dir=Path(out_dir), stem=f"{stem}_{col.lower()}", dpi=dpi,
+            polys=polys, gl=gl, gt=gt, mask=mask, zz=zz,
+            cmap=cmap_z, vmin=-Z_VABS, vmax=Z_VABS,
+            lons=lons, lats=lats, z_vals=vals, sig_arr=sig,
+            full_title=title.replace("(a) ", "").replace("(b) ", "")
+                             .replace("(c) ", "").replace("(d) ", ""),
+            cb_label="Z", cb_ticks=z_ticks, cb_thresholds=z_thresh,
+            xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+            station_ids=stns,
+        )
+
 
 # ── Sen's slope all-scales row ────────────────────────────────────────────────
 
@@ -948,3 +1073,20 @@ def fig_senslope_row_v5(
         fontsize=9.0, fontfamily=FONT_SERIF, y=0.97,
     )
     _finalize_figure(fig, out_dir, stem, dpi, add_legend=True)
+
+    # ── Standalone panel exports ─────────────────────────────────────────────
+    for pdata in panels:
+        scale_label = _LABELS.get(pdata["scale_key"], pdata["scale_key"])
+        panel_stem  = f"{stem}_{scale_label.replace(' ', '_')}"
+        _export_panel_standalone(
+            out_dir=Path(out_dir), stem=panel_stem, dpi=dpi,
+            polys=polys, gl=gl, gt=gt, mask=mask, zz=pdata["zz"],
+            cmap=cmap_s, vmin=-global_vabs, vmax=global_vabs,
+            lons=pdata["lons"], lats=pdata["lats"],
+            z_vals=pdata["slope_v"], sig_arr=pdata["sig_arr"],
+            full_title=f"{scale_label} — Sen's Slope (mm yr⁻¹)",
+            cb_label="mm yr⁻¹",
+            cb_ticks=[-global_vabs, 0.0, global_vabs], cb_thresholds=None,
+            xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+            station_ids=pdata["stns"],
+        )
