@@ -50,41 +50,42 @@ Z_VABS = 2.6        # Z colormap saturation  (≈ Z_0.01 = 2.576)
 
 # ── Layout specification ──────────────────────────────────────────────────────
 #
-# 5-panel figure: 11 × 13.5 inches (constrained_layout=False)
-# Maps:   3-row × 4-col GridSpec — original balanced arrangement
+# 5-panel figure: 8.8 × 10.8 inches (constrained_layout=False)
+# Maps:   3-row × 4-col GridSpec — locked publication geometry
 #           Row 0: (a) cols 0:2,  (b) cols 2:4
 #           Row 1: (c) cols 0:2,  (d) cols 2:4
-#           Row 2: (empty) cols 0:2,  (e) cols 2:4   ← lower-right
-# Shared colorbars: horizontal, in bottom margin below the GridSpec
-# Comparison figure: 10 × 8.5 inches, 1-row × 2-col GridSpec
-# Single-method figure: 5.5 × 8.5 inches, 1-row × 1-col GridSpec
+#           Row 2: (e) cols 1:3   ← centred
+# GridSpec: left=0.045 right=0.985 top=0.955 bottom=0.055
+#           wspace=0.08 hspace=0.16
+# Row figures: 15.5 × 4.8 inches
+#   left=0.03 right=0.992 top=0.90 bottom=0.09 wspace=0.06
 #
 LAYOUT = {
-    # 5-panel figure (3×4, constrained_layout=False, original dimensions)
-    "fig_w":     11.0,      # inches
-    "fig_h":     12.5,      # inches — restored to original height
+    # 5-panel publication figure — locked geometry
+    "fig_w":     8.8,
+    "fig_h":    10.8,
     # Comparison figure (2 panels side-by-side)
     "cmp_fig_w": 10.0,
-    "cmp_fig_h": 8.5,
+    "cmp_fig_h":  8.5,
     # Single-method figure (1 panel)
-    "sgl_fig_w": 5.5,
-    "sgl_fig_h": 8.5,
-    # Row figures — single horizontal strip of maps
-    "row4_fig_w":    14.0,  # 4-method comparison row
-    "row4_fig_h":     6.5,
-    "row_sens_fig_w": 11.0, # Sen's slope all-scales row
-    "row_sens_fig_h":  6.5,
+    "sgl_fig_w":  4.5,
+    "sgl_fig_h":  8.0,
+    # Row figures — locked geometry (both 4-method and Sen rows)
+    "row4_fig_w":    15.5,
+    "row4_fig_h":     4.8,
+    "row_sens_fig_w": 15.5,
+    "row_sens_fig_h":  4.8,
     "dpi":       600,
     # Station marker
-    "stn_size":  60,
+    "stn_size":  55,
     # Province outline
     "poly_lw":   0.70,
     "poly_color":"#222222",
     # Inset colorbar geometry (per-panel, axes-fraction coords)
-    "cbar_x0":   0.695,
-    "cbar_y0":   0.030,
-    "cbar_w":    0.275,
-    "cbar_h":    0.056,
+    "cbar_x0":   0.680,
+    "cbar_y0":   0.022,
+    "cbar_w":    0.295,
+    "cbar_h":    0.062,
 }
 
 
@@ -94,34 +95,34 @@ LAYOUT = {
 
 def build_axes(fig):
     """
-    Build the 5-panel map axes: original balanced 3×4 GridSpec.
+    5-panel map axes — locked publication geometry (8.8 × 10.8 in).
 
-    Grid layout (restored original arrangement):
+    Grid layout:
         Row 0:  (a) cols 0:2   |  (b) cols 2:4
         Row 1:  (c) cols 0:2   |  (d) cols 2:4
-        Row 2:  (empty)        |  (e) cols 2:4   ← lower-right
+        Row 2:        (e) cols 1:3   ← centred
 
-    constrained_layout=False — explicit GridSpec margins leave
-    bottom=0.16 of figure height for shared colorbars and legend.
+    GridSpec: left=0.045 right=0.985 top=0.955 bottom=0.055
+              wspace=0.08  hspace=0.16
 
     Returns
     -------
-    ax_a, ax_b, ax_c, ax_d, ax_e : map axes (no colorbar axes)
+    ax_a, ax_b, ax_c, ax_d, ax_e : map axes
     """
     from matplotlib.gridspec import GridSpec
 
     gs = GridSpec(
         3, 4, figure=fig,
-        height_ratios=[1, 1, 1.05],
-        hspace=0.18, wspace=0.12,
-        left=0.07, right=0.97,
-        top=0.93, bottom=0.08,
+        height_ratios=[1, 1, 1],
+        hspace=0.16, wspace=0.08,
+        left=0.045, right=0.985,
+        top=0.955, bottom=0.055,
     )
     ax_a = fig.add_subplot(gs[0, 0:2])   # (a) Standard MK
     ax_b = fig.add_subplot(gs[0, 2:4])   # (b) Modified MK
     ax_c = fig.add_subplot(gs[1, 0:2])   # (c) PW-MK
     ax_d = fig.add_subplot(gs[1, 2:4])   # (d) TFPW-MK
-    ax_e = fig.add_subplot(gs[2, 2:4])   # (e) Sen's Slope — lower-right
+    ax_e = fig.add_subplot(gs[2, 1:3])   # (e) Sen's Slope — centred
 
     return ax_a, ax_b, ax_c, ax_d, ax_e
 
@@ -154,10 +155,9 @@ def build_axes_single(fig):
 
 def build_row_layout(fig, n_cols: int) -> list:
     """
-    Build a 1×n_cols horizontal row of map axes for row-comparison figures.
+    1×n_cols row of map axes — locked row-figure geometry (15.5 × 4.8 in).
 
-    constrained_layout=False — explicit margins leave bottom=0.07 for
-    per-panel inset colorbars and figure suptitle at top=0.88.
+    GridSpec: left=0.03 right=0.992 top=0.90 bottom=0.09 wspace=0.06
 
     Parameters
     ----------
@@ -171,9 +171,9 @@ def build_row_layout(fig, n_cols: int) -> list:
     from matplotlib.gridspec import GridSpec
     gs = GridSpec(
         1, n_cols, figure=fig,
-        left=0.04, right=0.98,
-        top=0.88, bottom=0.07,
-        wspace=0.10,
+        left=0.030, right=0.992,
+        top=0.900, bottom=0.090,
+        wspace=0.06,
     )
     return [fig.add_subplot(gs[0, i]) for i in range(n_cols)]
 

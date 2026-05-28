@@ -405,7 +405,7 @@ def fig_q1_spatial_trend_v5(
 
     fig.suptitle(
         f"Spatial Rainfall Trend Distribution — {scale_short}  |  {period}",
-        fontsize=9.5, fontfamily=FONT_SERIF, y=0.975,
+        fontsize=9.5, fontfamily=FONT_SERIF, y=0.985,
     )
 
     # ── Shared figure-level annotations ─────────────────────────────────────
