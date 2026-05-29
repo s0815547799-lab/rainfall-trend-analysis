@@ -1,6 +1,6 @@
 ======================================================================
   SPATIAL TREND ANALYSIS — Q1 PUBLICATION METADATA
-  Generated: 2026-05-28 22:55
+  Generated: 2026-05-29 01:07
 ======================================================================
 
 BOUNDARY
@@ -44,12 +44,12 @@ FIELD SIGNIFICANCE  (Walker 1914 + Livezey-Chen MC)
 
 FIGURE DESIGN
   Layout      : 5-panel (2+2+1, panel (e) exactly centred)
-  Colormap Z  : RdBu_r,  vmin=-3.0,  vmax=3.0
+  Colormap Z  : RdBu_r,  vmin=-2.6,  vmax=2.6
   Colormap S  : RdYlGn,  symmetric ±max(|slope|)
   DPI         : 600
   Formats     : PNG, TIFF (LZW), PDF, SVG
   Font        : Times New Roman / DejaVu Serif (serif)
-  Grid        : 300×300
+  Grid        : 120×120
 
 STATION CLASSIFICATION  (shown in figure caption, not in figure body)
   ▲ green  — Increasing,  p < 0.05

@@ -95,9 +95,9 @@ LAYOUT = {
     "poly_color":"#222222",
     # Inset colorbar geometry (per-panel, axes-fraction coords)
     "cbar_x0":   0.672,
-    "cbar_y0":   0.088,
+    "cbar_y0":   0.105,   # raised from 0.088 — clearance for rotated tick labels
     "cbar_w":    0.302,
-    "cbar_h":    0.048,
+    "cbar_h":    0.052,   # taller from 0.048 — accommodates angled labels
     # Figure-level legend (shared across all figure types)
     "leg_x0":         0.04,
     "leg_y0":         0.012,

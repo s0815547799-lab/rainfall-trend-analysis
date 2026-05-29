@@ -211,8 +211,11 @@ def make_boundary_mask(
 
     outer = [max(polys, key=_bbox_area)] if polys else []
 
-    # Render at exactly (nx × ny) pixels
-    fig = Figure(figsize=(nx / 100, ny / 100), dpi=100)
+    # Render at 4× resolution, then area-average down — eliminates staircase
+    # artefacts at the narrow southern tip where each cell is only ~3 px wide.
+    OVERSAMPLE = 4
+    nxo, nyo = nx * OVERSAMPLE, ny * OVERSAMPLE
+    fig = Figure(figsize=(nxo / 100, nyo / 100), dpi=100)
     canvas = FigureCanvasAgg(fig)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(xmin, xmax)
@@ -225,10 +228,13 @@ def make_boundary_mask(
         ax.fill(poly[:, 0], poly[:, 1], color=(1, 1, 1), linewidth=0)
 
     canvas.draw()
-    buf  = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
-    img  = buf.reshape(ny, nx, 4)
+    buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+    img = buf.reshape(nyo, nxo, 4)
     # Agg rows run top→bottom; our meshgrid gt increases bottom→top
-    mask = np.flipud(img[:, :, 0] > 128)
+    hi  = np.flipud(img[:, :, 0]).astype(float) / 255.0
+    # Downsample: area-average 4×4 blocks → anti-aliased 300×300 coverage fraction
+    lo  = hi.reshape(ny, OVERSAMPLE, nx, OVERSAMPLE).mean(axis=(1, 3))
+    mask = lo > 0.5
     mask = binary_fill_holes(mask)
     return mask
 

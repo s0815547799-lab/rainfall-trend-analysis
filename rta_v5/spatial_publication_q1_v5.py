@@ -50,6 +50,13 @@ from .spatial_layout_v5 import (
 from .spatial_export_v5 import save_formats
 
 
+# ── Z-statistic colorbar tick specification ───────────────────────────────────
+# Five explicit ticks matching the two significance thresholds plus zero.
+# Unicode minus (U+2212) for proper typographic rendering.
+_Z_TICKS  = [-2.576, -1.960, 0.0, 1.960, 2.576]
+_Z_LABELS = ["−2.576", "−1.96", "0", "+1.96", "+2.576"]
+
+
 # ── Deterministic station label offsets (geographic degrees) ─────────────────
 # Key = last 3 chars of station ID.  Value = (dlon, dlat) in degrees.
 # Overrides quadrant-based fallback for known crowded stations.
@@ -60,8 +67,26 @@ _STN_LABEL_OFFSETS: dict[str, tuple[float, float]] = {
     "201": ( 0.012, -0.014),
     "003": ( 0.010,  0.010),
     "001": (-0.012,  0.008),
-    "202": (-0.014,  0.010),
+    "202": ( 0.016, -0.012),   # moved right (inland) + slightly down — avoids western boundary
 }
+
+
+def _edge_safe_offset(
+    lon: float, lat: float,
+    dlon: float, dlat: float,
+    xmin: float, xmax: float, ymin: float, ymax: float,
+    margin: float = 0.035,
+) -> tuple[float, float]:
+    """Reflect a station label offset inward if it would land within margin of map edges."""
+    if lon + dlon < xmin + margin:
+        dlon =  abs(dlon)
+    elif lon + dlon > xmax - margin:
+        dlon = -abs(dlon)
+    if lat + dlat < ymin + margin:
+        dlat =  abs(dlat)
+    elif lat + dlat > ymax - margin:
+        dlat = -abs(dlat)
+    return dlon, dlat
 
 
 # ── Province outline ──────────────────────────────────────────────────────────
@@ -154,6 +179,7 @@ def _add_inset_cbar(
     label: str,
     ticks: list[float],
     threshold_lines: list[tuple] | None = None,
+    tick_labels: list[str] | None = None,
 ) -> None:
     """Compact horizontal inset colorbar at lower-right of ax."""
     L = LAYOUT
@@ -165,12 +191,18 @@ def _add_inset_cbar(
 
     cbar = ax.figure.colorbar(sm, cax=axins, orientation="horizontal")
     cbar.set_ticks(ticks)
+    if tick_labels is not None:
+        cbar.set_ticklabels(tick_labels)
     # Label above the bar — avoids collision with tick labels below
     cbar.ax.xaxis.set_label_position("top")
     cbar.set_label(label, fontsize=5.5, fontfamily=FONT_SERIF, labelpad=2.0)
     cbar.ax.tick_params(labelsize=4.5, length=2.5, pad=1.2, width=0.5)
-    for tick_label in cbar.ax.get_xticklabels():
-        tick_label.set_fontfamily(FONT_SERIF)
+    for lbl in cbar.ax.get_xticklabels():
+        lbl.set_fontfamily(FONT_SERIF)
+        if tick_labels is not None:
+            lbl.set_fontsize(3.8)
+            lbl.set_rotation(-45)
+            lbl.set_ha("right")
 
     # Semi-transparent backing so the colorbar reads over any map colour
     axins.patch.set_facecolor("white")
@@ -433,6 +465,8 @@ def _draw_panel(
             if key in _STN_LABEL_OFFSETS:
                 # Deterministic geographic offset — consistent across all panels
                 dlon, dlat = _STN_LABEL_OFFSETS[key]
+                dlon, dlat = _edge_safe_offset(lon, lat, dlon, dlat,
+                                               xmin, xmax, ymin, ymax)
                 ha = "right" if dlon < 0 else "left"
                 ax.annotate(key,
                             xy=(lon, lat),
@@ -446,12 +480,15 @@ def _draw_panel(
                 near_cbar  = x_frac > 0.60 and y_frac < 0.20
                 right_side = x_frac > 0.70 or (x_frac > 0.80 and y_frac > 0.78)
                 south_edge = y_frac < 0.15
+                west_edge  = x_frac < 0.08
                 if near_cbar:
                     dx, dy, ha = -6, 7, "right"
                 elif right_side:
                     dx, dy, ha = -6, 4, "right"
                 elif south_edge:
                     dx, dy, ha =  4, 8, "left"
+                elif west_edge:
+                    dx, dy, ha =  6, 4, "left"
                 else:
                     dx, dy, ha =  5, 5, "left"
                 ax.annotate(key,
@@ -468,9 +505,15 @@ def _draw_panel(
 
     # ── Per-panel inset colorbar ─────────────────────────────────────────────
     if draw_inset_cbar:
-        _add_inset_cbar(ax, cmap, vmin, vmax,
-                        label=cb_label, ticks=cb_ticks,
-                        threshold_lines=cb_thresholds)
+        if cb_label == "Z":
+            _add_inset_cbar(ax, cmap, vmin, vmax,
+                            label=cb_label, ticks=_Z_TICKS,
+                            threshold_lines=cb_thresholds,
+                            tick_labels=_Z_LABELS)
+        else:
+            _add_inset_cbar(ax, cmap, vmin, vmax,
+                            label=cb_label, ticks=cb_ticks,
+                            threshold_lines=cb_thresholds)
 
 
 # ── Public figure function ────────────────────────────────────────────────────
