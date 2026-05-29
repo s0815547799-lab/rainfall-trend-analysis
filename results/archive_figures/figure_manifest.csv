@@ -1,6 +1,6 @@
 Figure_ID,Group,Filename,Format,Size_KB,Timestamp,SHA256
-Fig10,Primary Pipeline (v3/v4),Fig10_ZComparisonMatrix.pdf,PDF,319.0,2026-05-29T08:36:03,2fe63463bc86dcbb8fa20329b1f871b49593e1a9db1c97c36993a3705a9b1f84
-Fig10,Primary Pipeline (v3/v4),Fig10_ZComparisonMatrix.png,PNG,1257.0,2026-05-29T08:36:01,4202f698520b159e129fd12612b5257d16be95db3d86ab140b933e909edc7145
+Fig10,Primary Pipeline (v3/v4),Fig10_ZComparisonMatrix.pdf,PDF,399.5,2026-05-29T09:07:27,85c3b5e888c069741ce836dd168d3fab0194ce2c75c8153525f1790e5f04f790
+Fig10,Primary Pipeline (v3/v4),Fig10_ZComparisonMatrix.png,PNG,1284.1,2026-05-29T09:07:27,83ae336cbd46a22b0d90595f5c1476c63f4b650563f11a219c08207ae7a69886
 Fig11,Primary Pipeline (v3/v4),Fig11_MethodComparison.pdf,PDF,29.7,2026-05-29T08:36:03,eb024d15ef4ed9aa105462be2b77310270c90826985d85f66eacd4ebe0b808a8
 Fig11,Primary Pipeline (v3/v4),Fig11_MethodComparison.png,PNG,955.5,2026-05-29T08:36:01,9f37a0bd82d3029e3ca1e205fdf9cfd71bfa7655f9a7ad0d41852d6cfff47d65
 Fig12,Primary Pipeline (v3/v4),Fig12_ACF_Diagnostics.pdf,PDF,30.7,2026-05-29T08:36:03,1c9fe10dcb51a49b20924de4f644b3f25977bde59ff15d2b0933b2d67948c745

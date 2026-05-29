@@ -30,12 +30,12 @@ from ..config import (C, DPI, SAVE_PDF, SCALE_META, Z_005, Z_001,
 # If the exact column names differ in the caller's DataFrame, only the
 # columns listed above are required; everything else is ignored.
 
-_METHOD_KEYS  = ["Standard MK", "Modified MK (H&R98)", "PW-MK", "TFPW-MK"]
+_METHOD_KEYS  = ["Standard MK", "Modified MK", "PW-MK", "TFPW-MK"]
 _METHOD_SHORT = {
-    "Standard MK":         "MK",
-    "Modified MK (H&R98)": "MMK",
-    "PW-MK":               "PW-MK",
-    "TFPW-MK":             "TFPW-MK",
+    "Standard MK":  "MK",
+    "Modified MK":  "MMK",
+    "PW-MK":        "PW-MK",
+    "TFPW-MK":      "TFPW-MK",
 }
 _PANEL_LABELS = ["(a)", "(b)", "(c)", "(d)"]
 _SCALE_ORDER  = ["annual", "wet", "dry"]
