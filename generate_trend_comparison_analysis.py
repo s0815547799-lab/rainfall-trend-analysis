@@ -13,6 +13,7 @@ Produces:
     Figures/                10 × (.png + .tiff + .pdf + .svg)
     Manuscript/             9 × .md templates
 """
+import os
 import sys
 from pathlib import Path
 
@@ -22,10 +23,13 @@ sys.path.insert(0, str(ROOT))
 from rta.trend_comparison_analysis import TrendComparisonAnalysis
 
 WB1_DIR = ROOT / "results" / "final_N33" / "excel"
-WB4_PATH = Path(
-    "/root/.claude/uploads/ac030f2a-04ee-4515-ae9b-e04aa5a4cfb7"
-    "/ebc6aee6-Rainfall_2Trend_Results.xlsx"
-)
+
+# WB4: resolve via env var first, then repo-relative fallback.
+# If neither exists, n_eff / CF / Lag columns will be NaN (execution continues).
+_WB4_ENV     = os.environ.get("WB4_PATH")
+_WB4_DEFAULT = ROOT / "data" / "reference" / "ebc6aee6-Rainfall_2Trend_Results.xlsx"
+WB4_PATH     = Path(_WB4_ENV) if _WB4_ENV else _WB4_DEFAULT
+
 OUT_DIR = ROOT / "results" / "final_N33_v5"
 
 

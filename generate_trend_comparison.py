@@ -4,8 +4,13 @@ Runner: generate Trend_Method_Comparison_Q1.xlsx
 Sources
 -------
 WB1  results/final_N33/excel/*_Results.xlsx   (canonical V4 pipeline output)
-WB4  /root/.claude/uploads/.../ebc6aee6-...   (supplementary: Pettitt CP, sig lags)
+WB4  supplementary workbook: Pettitt CP, significant-lag columns
+     Resolved in order:
+       1. WB4_PATH environment variable (export WB4_PATH=/path/to/file.xlsx)
+       2. data/reference/ebc6aee6-Rainfall_2Trend_Results.xlsx (repo-relative)
+     If neither exists, affected columns are omitted (NaN) and execution continues.
 """
+import os
 import sys
 from pathlib import Path
 
@@ -16,10 +21,12 @@ sys.path.insert(0, str(ROOT))
 from rta.trend_method_comparison import TrendMethodComparison
 
 WB1_GLOB = "results/final_N33/excel/*_Results.xlsx"
-WB4_PATH = Path(
-    "/root/.claude/uploads/ac030f2a-04ee-4515-ae9b-e04aa5a4cfb7"
-    "/ebc6aee6-Rainfall_2Trend_Results.xlsx"
-)
+
+# WB4: resolve via env var first, then repo-relative fallback
+_WB4_ENV     = os.environ.get("WB4_PATH")
+_WB4_DEFAULT = ROOT / "data" / "reference" / "ebc6aee6-Rainfall_2Trend_Results.xlsx"
+WB4_PATH     = Path(_WB4_ENV) if _WB4_ENV else _WB4_DEFAULT
+
 OUT_PATH = ROOT / "results" / "final_N33_v5" / "Trend_Method_Comparison_Q1.xlsx"
 
 

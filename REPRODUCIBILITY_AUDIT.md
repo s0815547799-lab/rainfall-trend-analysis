@@ -2,6 +2,7 @@
 **Repository:** `s0815547799-lab/rainfall-trend-analysis`  
 **Branch:** `claude/hydroclimatology-claude-md-kudre`  
 **Audit date:** 2026-05-29  
+**Remediation date:** 2026-05-29 (Priority-1 actions completed — see §15)  
 **Auditor:** Automated static analysis + runtime verification  
 **Scope:** Clean-machine reproducibility of all Python scripts from raw inputs  
 **Assumption:** Fresh clone, no pre-existing outputs, no prior environment
@@ -10,14 +11,14 @@
 
 ## 1. Executive Summary
 
-| Requirement | Status |
-|---|---|
-| All scripts can run from raw inputs | **PARTIAL** — 3 scripts require files unavailable outside the original execution environment |
-| Dependency list is complete and documented | **FAIL** — no `requirements.txt` or equivalent exists anywhere in the repository |
-| No hidden hardcoded absolute paths | **FAIL** — 3 scripts contain machine-specific absolute paths |
-| No manual intervention required | **PARTIAL** — `rta/checkpoint.py` issues an interactive prompt; handled gracefully when stdin is unavailable |
-| Execution order is documented | **PARTIAL** — `CLAUDE.md` documents the primary pipeline; post-processing order is undocumented |
-| All input data is in the repository or explicitly declared external | **PARTIAL** — primary CSV and coordinates are committed; one supplementary workbook (WB4) and all climate-model files are absent |
+| Requirement | Pre-remediation | Post-remediation |
+|---|---|---|
+| All scripts can run from raw inputs | **PARTIAL** — 3 scripts blocked | **PARTIAL** — `calval_split.py` still blocked (input files not in repo); 2 comparison runners now degrade gracefully |
+| Dependency list is complete and documented | **FAIL** — no `requirements.txt` | **PASS** — `requirements.txt` created with pinned versions |
+| No hidden hardcoded absolute paths | **FAIL** — 3 scripts had machine-specific paths | **PASS** — all 3 scripts fixed; paths now env-var + `__file__`-relative |
+| No manual intervention required | **PARTIAL** — `rta/checkpoint.py` interactive prompt; handled gracefully | **PARTIAL** — unchanged; graceful handling sufficient |
+| Execution order is documented | **PARTIAL** — primary in `CLAUDE.md`; post-processing undocumented | **PASS** — full 6-step order documented in §10 of this audit |
+| All input data in repository or explicitly declared external | **PARTIAL** — WB4 and climate-model files absent | **PARTIAL** — WB4 now declared via `data/reference/` fallback + env var; calval inputs documented as external |
 | Monte Carlo results are deterministic | **PASS** — fixed seed (`seed=42`) used in both `rta/field_significance.py` and `rta/field_sig.py` |
 | Scientific outputs (committed workbooks and figures) are intact | **PASS** — all 8 master Excel workbooks and all figures are committed and version-controlled |
 
@@ -462,3 +463,142 @@ Listed by priority:
 ---
 
 *Audit performed by static analysis of all `.py` files, git history inspection, and runtime verification. No scientific results were modified. No output files were altered.*
+
+---
+
+## 15. Priority-1 Remediation Record
+
+All three Priority-1 actions from §14 were completed on 2026-05-29. The changes are minimal and targeted: no statistical logic, scientific calculations, or analysis results were modified. All changes are confined to path construction and script structure.
+
+### 15.1 `requirements.txt` created
+
+**File added:** `requirements.txt` (repo root)  
+**Content:**
+
+```
+numpy>=1.21     # tested 2.4.6
+pandas>=1.3     # tested 3.0.3
+scipy>=1.7      # tested 1.17.1
+matplotlib>=3.4 # tested 3.10.9
+openpyxl>=3.0   # tested 3.1.5
+statsmodels>=0.13   # extended: Comparative_4MMK.py only
+# pyproj>=3.2   # optional: rta_v5/ spatial interpolation
+# pyshp>=2.2    # optional: rta_v5/ shapefile reading
+```
+
+**Install command on a clean machine:**
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+### 15.2 HP-1 resolved — `generate_trend_comparison_analysis.py`
+
+**Lines changed:** 16–28 (path construction block only)
+
+**Before:**
+```python
+import sys
+from pathlib import Path
+...
+WB4_PATH = Path(
+    "/root/.claude/uploads/ac030f2a-04ee-4515-ae9b-e04aa5a4cfb7"
+    "/ebc6aee6-Rainfall_2Trend_Results.xlsx"
+)
+```
+
+**After:**
+```python
+import os
+import sys
+from pathlib import Path
+...
+_WB4_ENV     = os.environ.get("WB4_PATH")
+_WB4_DEFAULT = ROOT / "data" / "reference" / "ebc6aee6-Rainfall_2Trend_Results.xlsx"
+WB4_PATH     = Path(_WB4_ENV) if _WB4_ENV else _WB4_DEFAULT
+```
+
+**Behaviour on clean machine (WB4 absent):** `WB4_PATH.exists()` → `False` → existing graceful fallback activates → prints `"WB4 : NOT FOUND — n_eff / CF / Lag columns will be NaN"` → execution continues. Scientific outputs are unaffected because the Master DB in `results/final_N33_v5/` is already committed.
+
+**Behaviour with file available:** Place the file at `data/reference/ebc6aee6-Rainfall_2Trend_Results.xlsx` OR set `export WB4_PATH=/path/to/file.xlsx` before running.
+
+---
+
+### 15.3 HP-2 resolved — `generate_trend_comparison.py`
+
+Identical fix to HP-1. Same resolution order (env var → `data/reference/` fallback → graceful None).
+
+---
+
+### 15.4 HP-3 resolved — `calval_split.py`
+
+**Lines changed:** path block (lines 67–74 original → env-var construction) and all execution code (lines 87–557 original → wrapped in `main()` with `if __name__ == "__main__"` guard).
+
+**Before (hardcoded):**
+```python
+OUT_DIR  = Path("/mnt/user-data/outputs")
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+BASE     = Path("/mnt/user-data/uploads")
+OBS_FILE = BASE / "Observed_Rain_daily_198101_201412_28sta.xlsx"
+...
+# All execution ran at module level — file loaded on import
+obs = load_df(OBS_FILE)
+```
+
+**After (configurable):**
+```python
+_SCRIPT_DIR = Path(__file__).parent
+BASE    = Path(os.environ.get("CALVAL_DATA_DIR",
+                              str(_SCRIPT_DIR / "data" / "calval")))
+OUT_DIR = Path(os.environ.get("CALVAL_OUT_DIR",
+                              str(_SCRIPT_DIR / "results" / "calval")))
+OBS_FILE   = BASE / "Observed_Rain_daily_198101_201412_28sta.xlsx"
+...
+def main() -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    obs = load_df(OBS_FILE)
+    ...
+
+if __name__ == "__main__":
+    main()
+```
+
+**Behaviour on clean machine (input files absent):** Script can now be imported without errors. Running `python calval_split.py` raises `FileNotFoundError` pointing to the missing input file with a path that clearly indicates where to place it (`data/calval/`). Previously, import of the module caused an immediate crash with an opaque `/mnt/user-data/` path.
+
+**Behaviour with files available:** Place input Excel files in `data/calval/` (or set `CALVAL_DATA_DIR` env var) and run:
+```bash
+python calval_split.py
+# or
+CALVAL_DATA_DIR=/path/to/inputs CALVAL_OUT_DIR=/path/to/outputs python calval_split.py
+```
+
+**Note:** The three input Excel files (`Observed_Rain_daily_198101_201412_28sta.xlsx`, `pr_day_ACCESS-ESM1-5_...xlsx`, `bc_pr_day_ACCESS-ESM1-5_...xlsx`) are not included in this repository. This script is a standalone climate model bias-correction utility independent of the rainfall trend analysis pipeline. Obtaining these files is a prerequisite documented here for the first time.
+
+---
+
+### 15.5 Verification
+
+All three fixed scripts were verified by:
+
+1. **AST parse check** — `ast.parse()` confirmed zero syntax errors in all three files.
+2. **Path resolution dry-run** — confirmed WB4 resolves to `data/reference/` (not `/root/.claude/`) when env var is absent; confirmed env var override works correctly.
+3. **No `/mnt/user-data/` or `/root/.claude/` strings remaining** in any file.
+4. **`calval_split.py` import safety** — confirmed the module can be imported without executing any file I/O or data loading.
+5. **Downstream pipeline unchanged** — `generate_all_vs_mk_workbook.py` and `generate_final_validation.py` were run and correctly triggered their overwrite-protection guards (confirming they still read from existing committed outputs without modification).
+
+### 15.6 Updated Issue Registry
+
+| ID | Severity | Status | Resolution |
+|---|---|---|---|
+| HP-1 | 🔴 CRITICAL | ✅ **RESOLVED** | Env var + `data/reference/` fallback; graceful None when absent |
+| HP-2 | 🔴 CRITICAL | ✅ **RESOLVED** | Same as HP-1 |
+| HP-3 | 🔴 CRITICAL | ✅ **RESOLVED** | Env var + `data/calval/` fallback; `main()` guard added |
+| DEP-1 | 🔴 CRITICAL | ✅ **RESOLVED** | `requirements.txt` created with tested versions |
+| IP-1 | 🟡 MEDIUM | ⏳ Open | `input()` in `rta/checkpoint.py:100`; graceful EOFError handling sufficient for now |
+| MG-1 | 🟡 MEDIUM | ✅ **RESOLVED** (via HP-3) | `calval_split.py` now has `__main__` guard |
+| MG-2 | 🟡 MEDIUM | ✅ **RESOLVED** (via HP-3) | `calval_split.py` guard prevents import-time execution |
+| DATA-1 | 🟡 MEDIUM | ⏳ Open | WB4 not in repo; fallback path documented; placement instructions added |
+| DATA-2 | 🟡 MEDIUM | ⏳ Open | Shapefile not in repo; `generate_q1_maps.py` exits cleanly if absent |
+| OPT-1 | 🟢 MINOR | ⏳ Open | `pyproj`/`pyshp` optional; noted in `requirements.txt` |
+| DOC-1 | 🟢 MINOR | ⏳ Open | `README.md` expansion deferred |
