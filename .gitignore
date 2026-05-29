@@ -230,6 +230,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Large TIFF figures (>100 MB, exceed GitHub file size limit)
+results/final_N33_v5/Trend_Method_Comparison/Figures/*.tiff
+
 # Ruff stuff:
 .ruff_cache/
 

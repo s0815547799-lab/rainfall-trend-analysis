@@ -1,0 +1,5 @@
+Station,Code,Scale,rho_1,Sig_AC,n_eff,Correction_Factor,Lag_parsed,MK_Z,MK_sig,MK_trend,MMK_Z,MMK_sig,MMK_trend,Class_MMK,PW_Z,PW_sig,PW_trend,Class_PW,TFPW_Z,TFPW_sig,TFPW_trend,Class_TFPW
+500003,S3,Wet Season (May–Oct),0.5827,Yes*,33.03768069475208,1.029127931652926,k=1(ρ=+0.582); k=2(ρ=+0.361); k=9(ρ=−0.432); k=10(ρ=−0.351),-1.8679,ns,No trend,-1.1315,ns,No trend,Weakened,-1.0071,ns,No trend,Weakened,-2.1227,*,Decreasing ↓,Direction_Changed
+500005,S5,Wet Season (May–Oct),0.4555,Yes*,32.94192253017283,1.032119481455827,k=1(ρ=+0.360),-2.1051,*,Decreasing ↓,-1.6254,ns,No trend,Direction_Changed,-0.9761,ns,No trend,Direction_Changed,-2.0917,*,Decreasing ↓,Stable_Significant
+500006,S6,Wet Season (May–Oct),0.5478,Yes*,32.90392625434833,1.033311336075184,k=1(ρ=+0.376),-2.1644,*,Decreasing ↓,-1.6566,ns,No trend,Direction_Changed,-1.1931,ns,No trend,Direction_Changed,-2.5876,**,Decreasing ↓,Stable_Significant
+500004,S4,Dry Season (Nov–Apr),0.3536,Yes*,31.9728189685143,1.032126695881812,k=6(ρ=+0.384); k=10(ρ=−0.479),2.1537,*,Increasing ↑,2.1537,*,Increasing ↑,Stable_Significant,1.4757,ns,No trend,Direction_Changed,2.1537,*,Increasing ↑,Stable_Significant

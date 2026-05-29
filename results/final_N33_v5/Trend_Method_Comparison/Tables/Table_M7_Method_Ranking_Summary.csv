@@ -1,0 +1,5 @@
+Method,N_sig_05_total,N_sig_01_total,Frac_sig_05,mean_abs_Z,mean_slope,N_sig_Annual,N_sig_Wet,N_sig_Dry,N_Increasing_sig,N_Decreasing_sig
+Standard MK,6,2,0.1667,0.9823,0.3804,1,2,3,4,2
+Modified MK (H&R98),4,1,0.1111,0.91,0.3804,1,0,3,4,0
+PW-MK,3,0,0.0833,0.8089,0.6836,1,0,2,3,0
+TFPW-MK,7,3,0.1944,0.9798,0.4653,1,3,3,4,3
