@@ -19,7 +19,7 @@ Period: 1981–2014 (34 years) | Stations: 12 | Temporal scales: Annual, Wet Sea
 - Max |Z|: 2.774
 
 ## Key Findings
-The MMK correction reduced the number of significant trends from 6 (MK) to 4. Correction factors ranged from 1.000 to 1.098.
+The MMK correction reduced the number of significant trends from 6 (MK) to 4. Correction factors ranged from 1.000 to 2.725.
 
 ## Notes
 - Significance threshold: α = 0.05 (|Z| ≥ 1.96) and α = 0.01 (|Z| ≥ 2.576)

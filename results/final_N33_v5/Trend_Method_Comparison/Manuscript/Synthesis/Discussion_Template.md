@@ -3,10 +3,11 @@
 ## 5.1 Why Method Choice Matters for Monsoon Rainfall Trend Detection
 Serial autocorrelation inflates Type I error rates in the Standard MK test, potentially
 overstating the prevalence of significant trends. In this dataset, 10 of 12 stations
-exhibited significant lag-1 autocorrelation (α = 0.05), with ρ₁ values up to [max ρ₁].
-However, the MMK correction factor was modest (max CF = 1.098),
-suggesting that despite the presence of autocorrelation, its practical impact on MK test
-conclusions was limited in this basin.
+exhibited significant lag-1 autocorrelation (α = 0.05), with ρ₁ values up to 0.583
+(Station S3, Wet Season). The MMK correction factor reached a maximum of 2.725
+(S3 Wet Season; n_eff = 12.48 years), indicating substantial variance inflation for
+high-autocorrelation station-scale combinations, while remaining at 1.000 for stations
+without significant serial dependence.
 
 ## 5.2 MMK vs PW-MK: Conservative vs Liberal Correction
 The MMK and PW-MK approaches produced divergent results in the Wet Season scale.
@@ -28,7 +29,12 @@ none after correction. This highlights the risk of using Standard MK in wet-seas
 monsoon series where serial persistence is strongest.
 
 ## 5.5 Recommendation for Method Selection
-Given the modest correction factors observed (CF < 1.10 for all stations), the
-differences between methods are not severe. However, for publication, we recommend
+Despite correction factors as large as 2.725 for strongly autocorrelated stations,
+the overall pattern of detected trends was robust. For publication, we recommend
 reporting all four methods and noting stations where method choice changes the
-conclusion. [Insert specific station names from Table M4.]
+conclusion. Four station-scale combinations showed method-dependent significance
+or direction: S5 Wet Season (MK: significant; MMK and PW-MK: non-significant),
+S6 Wet Season (MK: significant; MMK and PW-MK: non-significant), S3 Wet Season
+(MK and MMK: non-significant; TFPW-MK: significant), and S4 Dry Season (MK,
+MMK, and TFPW-MK: significant; PW-MK: non-significant). Source: Table M4
+(Table_M4_Station_Disagreement_Inventory.csv).

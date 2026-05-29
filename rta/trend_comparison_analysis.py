@@ -346,17 +346,20 @@ class TrendComparisonAnalysis:
     def _load_sources(self) -> None:
         self._data: dict = {}
         self._data["s1"] = _read_wb1(self.wb1, _WB1_SH["s1"])
+        self._data["s2"] = _read_wb1(self.wb1, _WB1_SH["s2"])
         self._data["s4"] = _read_wb1(self.wb1, _WB1_SH["s4"])
         self._data["s7"] = _read_wb1(self.wb1, _WB1_SH["s7"])
         s8 = _read_wb1(self.wb1, _WB1_SH["s8"])
         s8["Scale"] = s8["Scale"].map(_SCALE_LONG).fillna(s8["Scale"])
         self._data["s8"] = s8
+        # WB4 retained as optional legacy; CF/n_eff now sourced from S2 (WB1)
         if self.wb4:
-            self._data["m3"] = _read_wb4(self.wb4, _WB4_SH["m3"])
-            self._data["p4"] = _read_wb4(self.wb4, _WB4_SH["p4"])
+            try:
+                self._data["m3"] = _read_wb4(self.wb4, _WB4_SH["m3"])
+            except Exception:
+                self._data["m3"] = None
         else:
             self._data["m3"] = None
-            self._data["p4"] = None
 
     # ── Master builder ────────────────────────────────────────────────────────
 
@@ -380,16 +383,27 @@ class TrendComparisonAnalysis:
             master[f"{m}_sig_05"] = z.abs() >= _Z05
             master[f"{m}_sig_01"] = z.abs() >= _Z01
 
-        # AC block from WB4
-        if m3 is not None:
-            ac = m3[["Station", "Scale", "n_eff", "Correction_Factor", "Significant_Lags"]].copy()
-            master = master.merge(ac, on=["Station", "Scale"], how="left")
-            master["Lag_parsed"] = master["Significant_Lags"].apply(_parse_lags)
+        # AC block — derived from S2 (WB1 Sheet 2: Modified MK).
+        # Correction_Factor = Var*(S) / Var(S);  n_eff read directly from S2.
+        # This removes the WB4 external dependency; provenance is now fully
+        # traceable to the committed primary Results workbook.
+        s2 = self._data["s2"].copy()
+        # Normalise station IDs (strip float suffix introduced by openpyxl)
+        s2["Station"] = s2["Station"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+        # Identify the Var*(S) column (unicode asterisk)
+        var_adj_col = next((c for c in s2.columns if "Var" in str(c) and "*" in str(c)), None)
+        var_s_col   = next((c for c in s2.columns if str(c) == "Var(S)"), None)
+        if var_adj_col and var_s_col:
+            s2["Correction_Factor"] = (
+                pd.to_numeric(s2[var_adj_col], errors="coerce") /
+                pd.to_numeric(s2[var_s_col],   errors="coerce")
+            ).round(6)
         else:
-            master["n_eff"]             = np.nan
-            master["Correction_Factor"] = np.nan
-            master["Significant_Lags"]  = "—"
-            master["Lag_parsed"]        = "—"
+            s2["Correction_Factor"] = 1.0
+        s2["n_eff"]      = pd.to_numeric(s2["n_eff"], errors="coerce").round(2)
+        s2["Lag_parsed"] = "—"
+        ac = s2[["Station", "Scale", "n_eff", "Correction_Factor", "Lag_parsed"]].copy()
+        master = master.merge(ac, on=["Station", "Scale"], how="left")
 
         # Sen_Slope (Standard MK method from S4)
         sen = (s4[s4["Method"] == "Standard MK"]
