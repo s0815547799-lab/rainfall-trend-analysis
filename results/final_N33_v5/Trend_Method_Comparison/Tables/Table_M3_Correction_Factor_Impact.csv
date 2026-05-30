@@ -1,0 +1,4 @@
+Scale,N_stations,N_CF_gt1,mean_CF,max_CF,N_Sig_AC,mean_n_eff,min_n_eff,N_sig_MK,N_sig_MMK,N_sig_changed
+Annual (Jan–Dec),12,1,1.0274,1.3284,3,33.299,25.59,1,1,0
+Wet Season (May–Oct),12,3,1.2591,2.7251,4,29.889,12.48,2,0,2
+Dry Season (Nov–Apr),12,1,1.0547,1.6562,3,31.911,19.93,3,3,0

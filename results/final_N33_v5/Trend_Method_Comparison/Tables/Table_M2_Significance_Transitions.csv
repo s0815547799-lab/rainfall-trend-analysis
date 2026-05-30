@@ -1,0 +1,10 @@
+Method,Scale,N_stable_sig,N_stable_ns,N_lost,N_gained,N_dir_changed,N_strengthened,N_weakened,N_MK_sig,N_MMK_sig,N_PW_sig,N_TFPW_sig
+MMK,Annual (Jan–Dec),1,10,0,0,0,0,1,1,1.0,,
+MMK,Wet Season (May–Oct),0,9,0,0,2,0,1,2,0.0,,
+MMK,Dry Season (Nov–Apr),3,9,0,0,0,0,0,3,3.0,,
+PW,Annual (Jan–Dec),1,8,0,0,0,0,3,1,,1.0,
+PW,Wet Season (May–Oct),0,8,0,0,2,0,2,2,,0.0,
+PW,Dry Season (Nov–Apr),2,9,0,0,1,0,0,3,,2.0,
+TFPW,Annual (Jan–Dec),1,9,0,0,0,0,2,1,,,1.0
+TFPW,Wet Season (May–Oct),2,8,0,0,1,0,1,2,,,3.0
+TFPW,Dry Season (Nov–Apr),3,9,0,0,0,0,0,3,,,3.0

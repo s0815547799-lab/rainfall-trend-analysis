@@ -1,0 +1,5 @@
+Station,Code,Scale,rho_1,Sig_AC,n_eff,Correction_Factor,Lag_parsed,MK_Z,MK_sig,MK_trend,MMK_Z,MMK_sig,MMK_trend,Class_MMK,PW_Z,PW_sig,PW_trend,Class_PW,TFPW_Z,TFPW_sig,TFPW_trend,Class_TFPW
+500003,S3,Wet Season (May–Oct),0.5827,Yes*,12.48,2.725068,—,-1.8679,ns,No trend,-1.1315,ns,No trend,Weakened,-1.0071,ns,No trend,Weakened,-2.1227,*,Decreasing ↓,Direction_Changed
+500005,S5,Wet Season (May–Oct),0.4555,Yes*,20.27,1.677263,—,-2.1051,*,Decreasing ↓,-1.6254,ns,No trend,Direction_Changed,-0.9761,ns,No trend,Direction_Changed,-2.0917,*,Decreasing ↓,Stable_Significant
+500006,S6,Wet Season (May–Oct),0.5478,Yes*,19.92,1.706922,—,-2.1644,*,Decreasing ↓,-1.6566,ns,No trend,Direction_Changed,-1.1931,ns,No trend,Direction_Changed,-2.5876,**,Decreasing ↓,Stable_Significant
+500004,S4,Dry Season (Nov–Apr),0.3536,Yes*,33.0,1.0,—,2.1537,*,Increasing ↑,2.1537,*,Increasing ↑,Stable_Significant,1.4757,ns,No trend,Direction_Changed,2.1537,*,Increasing ↑,Stable_Significant
