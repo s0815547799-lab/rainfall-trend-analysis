@@ -244,3 +244,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 REFERENCE_EXECUTION_OUTPUTS/
+
+# Claude Code internal
+.claude/
