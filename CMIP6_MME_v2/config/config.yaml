@@ -1,0 +1,69 @@
+# =============================================================================
+# CMIP6 MME Rainfall Projection Framework — Configuration File
+# =============================================================================
+# วิธีปรับใช้กับจังหวัด/พื้นที่ใหม่:
+#   1. เปลี่ยน study_area.name และ study_area.province_code
+#   2. ปรับ paths ให้ชี้ไปยังไฟล์ข้อมูลของพื้นที่ใหม่
+#   3. ตรวจสอบ seasons (wet_months / dry_months) ให้ตรงกับภูมิอากาศพื้นที่
+#   4. ปรับ periods ให้ตรงกับช่วงข้อมูลที่มี
+#   5. ตรวจสอบ scenarios ให้ตรงกับไฟล์ CMIP6 ที่มี
+#
+# ไม่ต้องแก้ไขอื่นใด — pipeline จะปรับตามอัตโนมัติ
+# =============================================================================
+
+# ── 1. Study Area ─────────────────────────────────────────────────────────────
+study_area:
+  name: "Prachuap Khiri Khan Province"   # ชื่อพื้นที่ศึกษา (ใช้ใน output filenames)
+  province_code: "prachuap"              # รหัสสั้น (a-z, ไม่มีช่องว่าง) ใช้ใน output dir
+  country: "Thailand"
+  description: "Phetchaburi–Prachuap Khiri Khan River Basin, Western Thailand"
+
+# ── 2. Paths ─────────────────────────────────────────────────────────────────
+# ใช้ relative paths จากตำแหน่งที่รัน script หรือ absolute paths
+paths:
+  observed:         "data/observed/observed_daily.xlsx"
+  cmip6_csv:        "data/cmip6_raw"           # folder — รองรับทั้ง Raw และ BC (bc_pr_day_*)
+  station_metadata: "data/station_metadata/station_metadata.xlsx"
+  boundary:         "data/boundary/boundary.shp"
+  outputs:          "outputs"
+
+# ── 3. Analysis Periods ────────────────────────────────────────────────────────
+# baseline: ช่วงข้อมูลสังเกตการณ์ที่ใช้เป็น reference
+# near_future: ช่วงอนาคตใกล้ที่ต้องการวิเคราะห์ change%
+# ssp_timeseries_start: จุดเริ่มต้นของ SSP ใน Figure 3 (ต่อเนื่องจาก baseline)
+periods:
+  baseline:              [1981, 2014]   # ปรับตามช่วงข้อมูลที่มี
+  near_future:           [2021, 2050]   # ช่วงอนาคตที่ต้องการ
+  ssp_timeseries_start:  2015          # Figure 3 จะแสดง SSP ตั้งแต่ปีนี้
+
+# ── 4. Seasons ────────────────────────────────────────────────────────────────
+# ปรับให้ตรงกับรูปแบบมรสุมของพื้นที่ศึกษา
+# ภาคตะวันตก/ใต้ ไทย: ฤดูฝน พ.ค.–ต.ค. | ภาคอีสาน: พ.ค.–ต.ค. | ภาคเหนือ: พ.ค.–ต.ค.
+seasons:
+  wet_months:  [5, 6, 7, 8, 9, 10]      # เดือนฤดูฝน (พ.ค.–ต.ค.)
+  dry_months:  [11, 12, 1, 2, 3, 4]     # เดือนฤดูแล้ง (พ.ย.–เม.ย.)
+
+# ── 5. Scenarios ──────────────────────────────────────────────────────────────
+# ต้องตรงกับ scenario codes ในชื่อไฟล์ CMIP6 CSV
+# ตัวอย่าง: ["ssp245", "ssp585"] หรือ ["ssp126", "ssp245", "ssp370", "ssp585"]
+scenarios: ["ssp245", "ssp585"]
+
+# ── 6. Data Quality ────────────────────────────────────────────────────────────
+quality:
+  min_completeness: 0.80     # สัดส่วน valid days ขั้นต่ำต่อ season (80%)
+  min_years_validate: 2      # ปีขั้นต่ำสำหรับคำนวณ KGE/NSE/PBIAS
+
+# ── 7. GIS / Interpolation ────────────────────────────────────────────────────
+gis:
+  interpolation: "idw"       # "idw" หรือ "kriging"
+  idw_power:     2.0         # IDW power parameter (ปกติ 1.5–3.0)
+  grid_n:        200         # ความละเอียด grid สำหรับ interpolation
+  target_crs:    "EPSG:4326" # Coordinate Reference System (WGS84)
+
+# ── 8. Figure Output Settings ─────────────────────────────────────────────────
+figures:
+  dpi:           600                    # ความละเอียด (600 = Q1 journal standard)
+  formats:       ["png", "tiff", "pdf"] # formats ที่ต้องการ
+  single_col_in: 3.5                    # ความกว้าง single-column (นิ้ว, มาตรฐาน AMS/AGU)
+  double_col_in: 7.2                    # ความกว้าง double-column (นิ้ว)
+  font_size:     9                      # ขนาดตัวอักษรหลัก (pt)
