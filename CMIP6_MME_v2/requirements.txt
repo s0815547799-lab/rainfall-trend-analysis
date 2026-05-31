@@ -1,31 +1,35 @@
 # CMIP6 MME Rainfall Projection Framework — dependencies
 # Install with: pip install -r requirements.txt
+#
+# Tested environment (Python 3.11):
+#   numpy 2.4.6 | pandas 3.0.3 | scipy 1.17.1 | geopandas 1.1.3
 
-# Core scientific stack
-numpy>=1.24,<3
-pandas>=2.0,<3
-scipy>=1.10,<2
+# ── Core scientific stack ──────────────────────────────────────────────────────
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
 
-# Config
+# ── Config ────────────────────────────────────────────────────────────────────
 PyYAML>=6.0
 
-# Excel I/O
-openpyxl>=3.1
-xlrd>=2.0           # for reading legacy .xls files
+# ── Excel I/O ─────────────────────────────────────────────────────────────────
+openpyxl>=3.1         # read/write .xlsx
 
-# Parquet (intermediate result caching)
+# ── Parquet (intermediate result caching) ─────────────────────────────────────
 pyarrow>=12.0
 
-# Visualisation
-matplotlib>=3.7,<4
-Pillow>=10.0         # QC: reading PNG/TIFF DPI metadata
+# ── Visualisation ─────────────────────────────────────────────────────────────
+matplotlib>=3.7
+Pillow>=10.0          # QC: reading PNG/TIFF DPI metadata
 
-# Geospatial
-geopandas>=0.14
-shapely>=2.0
-pyproj>=3.5
-fiona>=1.9
+# ── Geospatial ────────────────────────────────────────────────────────────────
+geopandas>=0.14       # shapefile I/O, CRS reprojection
+shapely>=2.0          # geometry operations
+pyproj>=3.5           # coordinate reference systems
+pyogrio>=0.7          # fast vector I/O backend for geopandas (replaces fiona)
 
-# Testing
+# ── Reporting ─────────────────────────────────────────────────────────────────
+tabulate>=0.9         # DataFrame.to_markdown() in QC report
+
+# ── Testing ───────────────────────────────────────────────────────────────────
 pytest>=7.4
-tabulate>=0.9        # for DataFrame.to_markdown() in QC report
