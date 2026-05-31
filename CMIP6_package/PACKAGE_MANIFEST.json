@@ -1,0 +1,26 @@
+{
+  "package": "CMIP6 MME Rainfall Projection Framework v1.0",
+  "date": "2026-05-31",
+  "reference_run": "RELEASE_20260531_051742",
+  "status": "FINAL RELEASE / QC PASS",
+  "figures": "7 \u00d7 single+double \u00d7 PNG/TIFF/PDF @600 dpi; station-based",
+  "fig_design": {
+    "F1": "Taylor (corr+normSD)",
+    "F2": "Cleveland KGE/NSE/PBIAS",
+    "F3": "anomaly continuous timeline",
+    "F4-6": "station value maps",
+    "F7": "proportional symbol change"
+  },
+  "results_levels": [
+    "station_model",
+    "station_mme",
+    "area_summary"
+  ],
+  "guardrails": {
+    "mme_member": false,
+    "n_models": 7,
+    "station_based": true,
+    "portable": true,
+    "data_unchanged": true
+  }
+}

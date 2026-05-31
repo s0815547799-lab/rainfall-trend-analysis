@@ -1,0 +1,28 @@
+# CMIP6 MME Rainfall Projection Framework — config (no hard-coded study area)
+study_area:
+  name: "Prachuap Khiri Khan Province, Thailand"   # label only; logic reads data
+paths:
+  observed: "data/observed/observed_daily.xlsx"
+  cmip6_csv: "data/cmip6_raw"          # contains both pr_day_* (Raw) and bc_pr_day_* (QDM/BC)
+  station_metadata: "data/station_metadata/dem.xlsx"
+  boundary: "data/boundary/boundary.shp"
+  outputs: "outputs"
+periods:
+  baseline: [1981, 2014]
+  near_future: [2021, 2050]      # change maps + tables only
+  ssp_timeseries_start: 2015     # Figure 3 continuous timeline uses ssp from 2015
+seasons:
+  wet_months: [5, 6, 7, 8, 9, 10]      # May–Oct (configurable)
+  dry_months: [11, 12, 1, 2, 3, 4]     # Nov–Apr
+scenarios: ["ssp245", "ssp585"]        # dynamic; discovered from filenames too
+gis:
+  interpolation: "idw"                 # idw | kriging
+  idw_power: 2.0
+  grid_n: 200
+  target_crs: "EPSG:4326"
+figures:
+  dpi: 600
+  formats: ["png", "tiff", "pdf"]
+  columns: ["single", "double"]        # generate BOTH (requirement 1)
+  single_col_in: 3.5
+  double_col_in: 7.2
