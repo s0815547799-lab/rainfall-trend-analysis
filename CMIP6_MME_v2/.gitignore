@@ -1,0 +1,23 @@
+# Input data (large files — add via your own data pipeline)
+data/observed/
+data/cmip6_raw/
+data/station_metadata/
+data/boundary/
+
+# Generated outputs
+outputs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
