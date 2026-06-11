@@ -25,13 +25,19 @@ log = logging.getLogger(__name__)
 # ── Scalar metric functions ───────────────────────────────────────────────────
 
 def kge(obs: np.ndarray, sim: np.ndarray) -> float:
-    """Kling-Gupta Efficiency (Gupta et al. 2009).  Range: (−∞, 1], perfect = 1."""
+    """Kling-Gupta Efficiency (Gupta et al. 2009).  Range: (−∞, 1], perfect = 1.
+
+    Uses sample std (ddof=1) per CLAUDE.md §12.10 mandate.  Note: α = σ_s/σ_o
+    is a ratio so the KGE value is numerically identical for ddof=0 or ddof=1;
+    ddof=1 is used for formal consistency with the Gupta et al. formulation as
+    required by the project scientific standards.
+    """
     m = np.isfinite(obs) & np.isfinite(sim)
     o, s = obs[m], sim[m]
     if len(o) < 2:
         return np.nan
-    std_o = np.std(o, ddof=0)
-    std_s = np.std(s, ddof=0)
+    std_o = np.std(o, ddof=1)
+    std_s = np.std(s, ddof=1)
     if std_o == 0:
         return np.nan   # undefined when observations are constant
     r     = np.corrcoef(o, s)[0, 1] if std_s > 0 else np.nan

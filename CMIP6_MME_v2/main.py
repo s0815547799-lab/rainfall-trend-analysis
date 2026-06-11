@@ -130,6 +130,25 @@ def run(cfg_path: str = "config/config.yaml") -> dict:
         except Exception as exc:
             log.warning("Skipping '%s': %s", Path(r.path).name, exc)
             continue
+
+        # ── CMIP6 period coverage validation (CLAUDE.md §12.5) ────────────
+        # Warn and exclude models that do not span the full required period.
+        if not yd.empty:
+            ann_years = yd[yd.season == "Annual"].year.unique()
+            if len(ann_years) > 0:
+                req_start = b0 if r.scenario == "historical" else f0
+                req_end   = b1 if r.scenario == "historical" else f1
+                if int(ann_years.min()) > req_start or int(ann_years.max()) < req_end:
+                    log.warning(
+                        "Excluding '%s' (scenario=%s, dataset=%s): "
+                        "Annual coverage [%d–%d] does not span required [%d–%d]",
+                        Path(r.path).name, r.scenario, r.dataset,
+                        int(ann_years.min()), int(ann_years.max()),
+                        req_start, req_end,
+                    )
+                    continue
+        # ──────────────────────────────────────────────────────────────────
+
         yd["dataset"]  = r.dataset
         yd["model"]    = r.model
         yd["scenario"] = r.scenario
@@ -161,25 +180,44 @@ def run(cfg_path: str = "config/config.yaml") -> dict:
     vm.to_parquet(out / "excel" / "Validation_Metrics.parquet", index=False)
 
     # ── Change% (BC near-future vs observed baseline) ─────────────────────────
-    log.info("Computing change%% (near-future %d–%d vs baseline %d–%d)…",
+    # Per CLAUDE.md §12.5: change% computed per-model first, then aggregated to
+    # MME statistics (mean, P25, P75).  Computing change% on the MME mean
+    # conflates inter-model spread with the change signal.
+    log.info("Computing change%% per model (near-future %d–%d vs baseline %d–%d)…",
              f0, f1, b0, b1)
-    obs_mean = obs.groupby(["station", "season"]).rainfall.mean().rename("obs_base")
+    obs_mean = obs.groupby(["station", "season"]).rainfall.mean()
+
+    bc_fut = per[(per.dataset == "BC")
+                 & per.scenario.isin(cfg["scenarios"])
+                 & (per.year >= f0) & (per.year <= f1)]
+
     change_rows = []
-    for scen in cfg["scenarios"]:
-        fut = (bc_mme[(bc_mme.scenario == scen)
-                      & (bc_mme.year >= f0) & (bc_mme.year <= f1)]
-               .groupby(["station", "season"])["mean"].mean())
-        for (st, se), fv in fut.items():
+    if not bc_fut.empty:
+        model_fut = (bc_fut.groupby(["model", "scenario", "station", "season"])
+                     .rainfall.mean().reset_index())
+        for (scen, st, se), g in model_fut.groupby(["scenario", "station", "season"]):
             ob = obs_mean.get((st, se), np.nan)
-            if np.isfinite(ob) and ob != 0:
-                change_rows.append({
-                    "station":      st,
-                    "season":       se,
-                    "scenario":     scen,
-                    "obs_baseline": round(float(ob), 2),
-                    "future_bc":    round(float(fv), 2),
-                    "change_pct":   round((fv - ob) / ob * 100, 2),
-                })
+            if not (np.isfinite(ob) and ob > 0):
+                continue
+            per_pct = ((g.rainfall.values - ob) / ob * 100)
+            valid   = per_pct[np.isfinite(per_pct)]
+            if len(valid) == 0:
+                continue
+            change_rows.append({
+                "station":        st,
+                "season":         se,
+                "scenario":       scen,
+                "obs_baseline":   round(float(ob), 2),
+                "future_bc":      round(float(g.rainfall.values.mean()), 2),
+                "change_pct":     round(float(np.mean(valid)), 2),
+                "change_pct_p25": round(float(np.percentile(valid, 25)), 2),
+                "change_pct_p75": round(float(np.percentile(valid, 75)), 2),
+                "n_models":       int(len(valid)),
+            })
+    else:
+        log.warning("No BC near-future data found for scenarios %s; change%% table empty",
+                    cfg["scenarios"])
+
     change = pd.DataFrame(change_rows)
     change.to_parquet(out / "excel" / "Change.parquet", index=False)
 
@@ -192,8 +230,9 @@ def run(cfg_path: str = "config/config.yaml") -> dict:
         mme.to_excel(xw, sheet_name="MME_summary",  index=False)
         meta.to_excel(xw, sheet_name="Metadata",    index=False)
 
-    log.info("Pipeline complete: MME=%d | validation=%d | change=%d",
-             len(mme), len(vm), len(change))
+    cfg_version = cfg.get("config_version", "unknown")
+    log.info("Pipeline complete: config_version=%s | MME=%d | validation=%d | change=%d",
+             cfg_version, len(mme), len(vm), len(change))
 
     return {
         "cfg":     cfg,
