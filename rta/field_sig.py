@@ -240,11 +240,15 @@ def field_sig_summary(scales: dict, stns: list,
                 "Frac_sig_MMK":     np.nan,
                 "Walker_p_MK":      np.nan,
                 "Walker_sig_MK":    False,
+                "Walker_p_MMK":     np.nan,
+                "Walker_sig_MMK":   False,
                 "LC_S_obs_MK":      np.nan,
                 "LC_p_MK":          np.nan,
                 "LC_sig_MK":        False,
                 "LC_null_mean_MK":  np.nan,
                 "LC_null_95th_MK":  np.nan,
+                "LC_p_MMK":         np.nan,
+                "LC_sig_MMK":       False,
             })
             continue
 
@@ -260,11 +264,22 @@ def field_sig_summary(scales: dict, stns: list,
             if modified_mk(a).get("p_value", 1.0) < alpha
         )
 
-        # Walker test for Standard MK
-        wt = walker_test(n_stn, n_sig_mk, alpha=alpha)
+        # Walker test — Standard MK
+        wt_mk  = walker_test(n_stn, n_sig_mk,  alpha=alpha)
 
-        # Livezey-Chen for Standard MK
+        # Walker test — Modified MK
+        wt_mmk = walker_test(n_stn, n_sig_mmk, alpha=alpha)
+
+        # Livezey-Chen for Standard MK (generates null distribution)
         lc = livezey_chen_mc(mk_series, alpha=alpha, n_perm=n_perm)
+
+        # Livezey-Chen for Modified MK — reuses MK null distribution.
+        # Permutation destroys autocorrelation, so the null fractions are
+        # method-invariant; only the observed fraction (MMK-based) differs.
+        null_dist  = lc["null_distribution"]
+        s_obs_mmk  = float(n_sig_mmk) / float(n_stn)
+        lc_p_mmk   = float(np.mean(null_dist >= s_obs_mmk))
+        lc_p_mmk   = max(1.0 / n_perm, min(1.0, lc_p_mmk))
 
         rows.append({
             "Scale":            sk,
@@ -273,13 +288,17 @@ def field_sig_summary(scales: dict, stns: list,
             "N_sig_MMK":        n_sig_mmk,
             "Frac_sig_MK":      round(float(n_sig_mk)  / float(n_stn), 4),
             "Frac_sig_MMK":     round(float(n_sig_mmk) / float(n_stn), 4),
-            "Walker_p_MK":      wt["p_walker"],
-            "Walker_sig_MK":    wt["field_significant"],
+            "Walker_p_MK":      wt_mk["p_walker"],
+            "Walker_sig_MK":    wt_mk["field_significant"],
+            "Walker_p_MMK":     wt_mmk["p_walker"],
+            "Walker_sig_MMK":   wt_mmk["field_significant"],
             "LC_S_obs_MK":      lc["S_obs"],
             "LC_p_MK":          lc["p_field_LC"],
             "LC_sig_MK":        lc["field_significant"],
             "LC_null_mean_MK":  lc["null_mean"],
             "LC_null_95th_MK":  lc["null_95th"],
+            "LC_p_MMK":         round(lc_p_mmk, 6),
+            "LC_sig_MMK":       lc_p_mmk < alpha,
         })
 
     return pd.DataFrame(rows)

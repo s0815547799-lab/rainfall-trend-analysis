@@ -4,6 +4,45 @@ All notable changes to this project are documented here.
 
 ---
 
+## [v4.1_defect_fixes] — 2026-06-11
+
+### Fixed
+
+#### C-01 — PW-MK Sen's slope corrected to use original series
+**File:** `rta/trend_tests.py::pw_mk()`
+
+`standard_mk(y)` was called on the prewhitened series `y`, causing `sens_slope(y)` to
+run on residuals instead of rainfall. Prewhitened residuals have expected slope β·(1−ρ₁),
+not β (Yue & Wang 2004, §2).
+
+Change: after `standard_mk(y)`, override `slope_Q/slope_lo/slope_hi` with
+`sens_slope(x)` results from the original series. Z, p-value, tau, and significance
+flags are unaffected — they are correctly derived from `y`.
+
+#### C-03 — MMK field significance added to `field_sig_summary()`
+**File:** `rta/field_sig.py::field_sig_summary()`
+
+Walker and Livezey-Chen tests were run only for Standard MK. Four columns were absent
+from the output DataFrame: `Walker_p_MMK`, `Walker_sig_MMK`, `LC_p_MMK`, `LC_sig_MMK`.
+
+Change: Walker test now called for both MK and MMK using respective `n_sig_*` counts.
+LC p-value for MMK derived by applying the MMK-based observed fraction against the
+existing MK null distribution. Valid because permutation destroys autocorrelation,
+making the null fractions method-invariant. Zero-station fallback row also updated.
+
+#### CM-05 — Figure 3 anomaly baseline restricted to configured baseline period
+**Files:** `CMIP6_MME_v2/src/figures/make.py::fig3_timeseries()`,
+           `CMIP6_package/src/figures/make.py::fig3_timeseries()`
+
+`obs.groupby("season").rainfall.mean()` used the entire obs series (historical + future
+concatenated) as the anomaly baseline, producing a reference climatology that shifts
+when the future window changes (non-reproducible).
+
+Change: filter `obs` to `cfg["periods"]["baseline"]` years before computing the mean.
+Baseline period `[1981, 2014]` is already defined in both `config/config.yaml` files.
+
+---
+
 ## [v4.0_hydroclimatology_Q1] — 2026-05-27
 
 ### Summary
