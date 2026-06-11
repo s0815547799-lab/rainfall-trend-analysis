@@ -222,8 +222,9 @@ def fig3_timeseries(d: dict, cfg: dict) -> list[Path]:
     def _ma5(s: pd.Series) -> pd.Series:
         return s.rolling(5, center=True, min_periods=1).mean()
 
-    # Baseline: spatial-mean per season over ALL stations and ALL obs years
-    base = obs.groupby("season").rainfall.mean()
+    bl0, bl1 = cfg.get("periods", {}).get("baseline", [1981, 2014])
+    base = (obs[(obs.year >= bl0) & (obs.year <= bl1)]
+            .groupby("season").rainfall.mean())
 
     def build(w: float):
         fig = plt.figure(figsize=(w, w * 1.45))

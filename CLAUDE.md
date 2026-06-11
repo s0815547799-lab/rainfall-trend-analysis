@@ -425,3 +425,149 @@ python rainfall_trend_analysis_v3.py
 - **Spatial coordinate loading:** `load_coords()` uses `pd.read_csv(..., dtype=str)` to prevent pandas from interpreting integer station IDs (e.g., `500001`) as `float64`, which would produce `'500001.0'` keys that fail dictionary lookups against string station names.
 - **`v4` checkpoint system:** 6 steps saved as pickle files in `checkpoints/` subdirectory. On resume, the pipeline detects the highest completed step and jumps directly to figures, skipping all statistical computation.
 - **Spatial figures are only generated when coordinate data is available** (`if coords:` guard in both v3 and v4 scripts). If `station_coordinates.csv` is absent from the input folder, spatial figures are silently skipped; all other figures and outputs are unaffected.
+
+---
+
+## 12. Mandatory Scientific Standards
+
+Rules derived from full-codebase audit (2026-06-11). These apply to all future code generation, extensions, and new repositories built on this project. Rules that duplicate §6–§10 are omitted; only additions and corrections are listed.
+
+---
+
+### 12.1 Mann-Kendall Family
+
+| Test | Mandatory rule |
+|------|---------------|
+| MMK (H&R98) | Inflation factor must be floored: `n/n* = max(1.0, 1+(2/n)Σ(n−k)ρ_k)`. Negative ρ_k values must never reduce Var*(S) below Var(S). |
+| PW-MK | Z/p/tau from prewhitened series `y = x[t+1] − ρ₁x[t]` only. Sen's slope **must** come from original series `x`. After `res = standard_mk(y)`, replace `res["slope_Q/lo/hi"]` with `sens_slope(x)` before returning. |
+| TFPW-MK | Slope from trend-restored `z` is acceptable (bias is one removed observation). Do not replace with `sens_slope(x)` for TFPW. |
+| All prewhitening | After constructing residual/restored series (length n−1), re-check `len >= MIN_N`. Return null result if below threshold; do not proceed with n < 10. |
+| Four-method output | Any table comparing MK methods must include all four: Standard MK, MMK, PW-MK, TFPW-MK, with slope and ΔSlope columns. |
+
+### 12.2 Sen's Slope
+
+- CI bounds (Gilbert 1987): `lo_r = int((N − C_α) / 2)`, `hi_r = int((N + C_α) / 2)` — use `int()` (floor), not `round()`.
+- For PW-MK: the slope override `sens_slope(x)` applies to `slope_Q`, `slope_lo`, and `slope_hi` — all three, not slope_Q alone.
+- Intercept: anchored at `median(x) − slope_Q × median(t)`. Never compute intercept from prewhitened series.
+
+### 12.3 Serial Autocorrelation
+
+- Significance threshold for field significance station eligibility: `len(series) >= MIN_N` (= 10). Using `len >= 4` inflates the Walker test denominator and biases the test toward non-significance.
+- Livezey-Chen MC for MMK: the null distribution (permuted `standard_mk` fractions) is reusable for both MK and MMK because permutation destroys autocorrelation. The **observed fraction** for MMK must be `n_sig_mmk / n_stn` — do not recompute it inside the LC function using `standard_mk`.
+- MMK ranked-series ACF: use `scipy.stats.rankdata` before computing autocorrelations. Raw series AC must not be substituted.
+
+### 12.4 Completeness and Data Quality
+
+- 80% gate applies uniformly to annual, wet, and dry scales. Do not use 60% for seasonal scales.
+- Wet-days/yr: numerator (wet-day count) and denominator (valid years) must use the same year-filtered record. Counting wet days from all daily records against a valid-year annual count produces a mismatched ratio.
+- Extreme outliers (> Q3 + 3×IQR): must be either removed with justification, or retained with explicit justification in the methods section. Flagging without action is not acceptable for Q1 publication.
+- Report minimum valid-year count per station per scale in the descriptive statistics table.
+
+### 12.5 Future-Period Validation (CMIP6)
+
+- Validate that each CMIP6 model's loaded time series covers the full configured period. Warn and exclude models with partial coverage; do not silently include them.
+- For projected windows (e.g. 2021–2050, 2071–2100): run Mann-Kendall and Sen's slope within each window per model and report Sen's slope (mm/yr/decade). Period-mean change% alone is insufficient for Q1 hydroclimatology.
+- Change% must be computed per-model first, then aggregated to MME statistics (mean, P25, P75 of per-model values). Computing change% on the MME mean conflates inter-model spread with the change signal.
+
+### 12.6 CMIP6 Calendar Handling
+
+| Calendar | Days/yr | Required action |
+|----------|---------|-----------------|
+| `standard` / `proleptic_gregorian` | 365.25 | None |
+| `noleap` / `365_day` | 365 | Drop Feb 29 from observed series before comparison |
+| `360_day` | 360 | Do not use `pd.to_datetime()` on raw dates; use `xarray`/`cftime` or convert before CSV generation |
+
+Manuscript §2 Data Pre-Processing must list every model, its calendar type, and the exact harmonisation step applied. This is a standard CMIP6 protocol requirement (Eyring et al. 2016) and a journal reproducibility requirement.
+
+### 12.7 Bias Correction Documentation
+
+No CMIP6 impact analysis is publishable without all of the following in the manuscript:
+
+| Required element | Notes |
+|-----------------|-------|
+| Method name + citation | e.g. QDM (Cannon et al. 2015 *J. Climate* 28:6938) |
+| Reference period | Must match observed baseline (e.g. 1981–2014) |
+| Software + version | e.g. `xclim` v0.45 |
+| Archived corrected data | DOI repository or deterministic generation script in the repo |
+
+KGE/NSE/PBIAS captions must state whether the metrics assess raw or bias-corrected model skill — these are different quantities and must not be conflated.
+
+### 12.8 Ensemble Methodology
+
+- Equal model weighting: state this explicitly in the methods section. Acknowledge model family redundancy (e.g. multiple ACCESS or CESM variants) is not corrected. Cite Knutti et al. (2017) if relevant.
+- NaN-safe percentiles: always use `float(np.percentile(s.dropna(), q)) if s.notna().any() else np.nan` in `groupby().agg()`. Bare `np.percentile(s, q)` on a pandas Series with NaN is NumPy-version-dependent.
+- MME statistics to report per station × season × year: mean, median, P25, P75, n_models. All five must be NaN-safe.
+
+### 12.9 GIS Figure Standards
+
+- Every geographic map must include: north arrow, scale bar, coordinate tick labels or graticule lines.
+- Anomaly time-series figures: compute baseline climatology exclusively over the configured baseline period (e.g. 1981–2014). Do not include future projection data in the baseline mean computation.
+- Bubble maps: size ∝ |Sen's slope|; colour = green (increasing, p < 0.05), red (decreasing, p < 0.05), grey (not significant). This encoding must be consistent across all spatial figures in a study.
+- CRS: WGS84 (EPSG:4326) throughout. Station IDs: always load with `dtype=str` to prevent `int → float64` cast.
+
+### 12.10 Publication-Ready Tables
+
+**Field significance table — mandatory columns:**
+
+| Column | Derives from |
+|--------|-------------|
+| `Walker_p_MK`, `Walker_sig_MK` | Standard MK |
+| `Walker_p_MMK`, `Walker_sig_MMK` | Modified MK |
+| `LC_p_MK`, `LC_sig_MK` | Standard MK |
+| `LC_p_MMK`, `LC_sig_MMK` | Modified MK |
+
+Omitting any MMK field significance column is a silent output gap. Reviewers will query it.
+
+**Validation metrics table:**
+- KGE/NSE/PBIAS reported for Raw MME and BC-MME on identical common-year samples (three-way intersection: obs ∩ raw ∩ bc).
+- KGE uses sample std (ddof=1) per Gupta et al. (2009). If population std (ddof=0) is used instead, state this explicitly in the caption.
+- Do not report std = 0.0 for stations with n = 1 valid year; use NaN.
+
+### 12.11 Reproducibility Requirements
+
+| Requirement | Mandatory for Q1 |
+|-------------|-----------------|
+| `requirements.txt` with pinned versions | Yes — create before submission |
+| Random seed documented | Yes — `seed=42` for LC Monte Carlo |
+| CMIP6 calendar handling documented in §2 | Yes |
+| Bias correction method, period, software in §2 | Yes |
+| Bias-corrected input data archived (DOI) or generation script committed | Yes |
+| `run_id` or `config_version` field in `config.yaml` | Yes — log to every output file |
+| Python version pinned in README | ✓ already present |
+| Checkpoint/resume system | ✓ already present |
+
+### 12.12 Final Release Checklist
+
+Before any submission or public release, all boxes must be checked:
+
+**Statistical correctness**
+- [ ] PW-MK: `slope_Q/lo/hi` computed from original series `x`, not prewhitened `y`
+- [ ] MMK: inflation factor floored at `n/n* ≥ 1.0`
+- [ ] Field significance table: all eight columns present (Walker + LC × MK + MMK)
+- [ ] Field significance station filter: `len >= MIN_N` (= 10), not 4
+- [ ] Post-prewhitening MIN_N re-check in `pw_mk()` before calling `standard_mk(y)`
+- [ ] Sen's slope CI: `int()` (floor) for `hi_r`, not `round()`
+
+**Data quality**
+- [ ] 80% completeness gate applied uniformly to annual, wet, dry scales
+- [ ] Outlier treatment explicitly justified in methods (not just flagged)
+- [ ] Wet-days/yr numerator and denominator from same year-filtered record
+
+**CMIP6 (if applicable)**
+- [ ] Calendar type documented for every model in §2
+- [ ] 360_day models handled before `pd.to_datetime()`
+- [ ] Bias correction: method, period, software, and data archive all cited in §2
+- [ ] Change% computed per-model before MME aggregation
+- [ ] NaN-safe percentile functions in `build_mme()`
+- [ ] Each model's series validated to cover full configured period
+
+**Figures**
+- [ ] 600 DPI, serif font, no top/right spines
+- [ ] All maps: north arrow, scale bar, WGS84, coordinate labels
+- [ ] Anomaly baseline computed over baseline period only (not full series)
+
+**Reproducibility**
+- [ ] `requirements.txt` with pinned versions present
+- [ ] `run_id` or `config_version` in `config.yaml` and logged to outputs
+- [ ] Random seed (42) documented
+- [ ] Bias-corrected input data archived or generation script committed

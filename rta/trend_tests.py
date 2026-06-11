@@ -262,7 +262,14 @@ def pw_mk(x: np.ndarray) -> dict:
     # Prewhiten: y[i] = x[i+1] - rho1 * x[i]
     y = x[1:] - rho1 * x[:-1]
 
+    # MK hypothesis test (Z, p, S, tau) from prewhitened series (Yue & Wang 2004).
+    # Sen's slope must come from the original series — prewhitened residuals
+    # have expected slope β·(1−ρ₁), not β.  (Yue & Wang 2004, §2, explicit.)
     res = standard_mk(y)
+    sq, slo, shi = sens_slope(x)
+    res["slope_Q"]  = round(sq,  3) if not np.isnan(sq)  else np.nan
+    res["slope_lo"] = round(slo, 3) if not np.isnan(slo) else np.nan
+    res["slope_hi"] = round(shi, 3) if not np.isnan(shi) else np.nan
     res["pw_applied"] = True
     res["rho_1_used"] = float(rho1)
     res["method"]     = "PW-MK"
