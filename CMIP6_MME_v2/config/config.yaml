@@ -1,6 +1,8 @@
 # =============================================================================
 # CMIP6 MME Rainfall Projection Framework — Configuration File
 # =============================================================================
+# config_version: logged to every output file for reproducibility (CLAUDE.md §12.11)
+config_version: "1.0.0"
 # วิธีปรับใช้กับจังหวัด/พื้นที่ใหม่:
 #   1. เปลี่ยน study_area.name และ study_area.province_code
 #   2. ปรับ paths ให้ชี้ไปยังไฟล์ข้อมูลของพื้นที่ใหม่

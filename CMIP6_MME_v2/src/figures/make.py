@@ -63,13 +63,27 @@ def _map_axes_style(ax, bounds):
     ax.set_xlim(x0 - mx, x1 + mx)
     ax.set_ylim(y0 - my, y1 + my)
     ax.set_aspect("equal")
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.grid(False)
+    # Coordinate tick labels — required by CLAUDE.md §12.9 (WGS84 lon/lat)
+    ax.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f°E"))
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f°N"))
+    ax.xaxis.set_major_locator(mticker.MaxNLocator(3, integer=False))
+    ax.yaxis.set_major_locator(mticker.MaxNLocator(3, integer=False))
+    ax.tick_params(labelsize=6, length=3, pad=2)
+    ax.grid(True, linestyle=":", alpha=0.30, color="0.65", zorder=0)
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_linewidth(0.5)
         spine.set_color("#888")
+
+
+def _add_north_arrow(ax):
+    """Simple north arrow in top-right corner (CLAUDE.md §12.9 requirement)."""
+    ax.annotate("", xy=(0.93, 0.93), xytext=(0.93, 0.81),
+                xycoords="axes fraction", textcoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>", color="k", lw=1.2),
+                zorder=10)
+    ax.text(0.93, 0.96, "N", transform=ax.transAxes,
+            ha="center", va="center", fontsize=7, fontweight="bold", zorder=10)
 
 
 def _collect_panel_data(obs: pd.DataFrame, bc: pd.DataFrame,
@@ -346,6 +360,7 @@ def _station_change_map(ax, geom, bounds, xy: np.ndarray, vals: np.ndarray,
     """Proportional-symbol map: size ∝ |Δ|, colour = diverging RdBu."""
     _boundary_plot(ax, geom)
     _map_axes_style(ax, bounds)
+    _add_north_arrow(ax)
     smax  = max(float(np.nanmax(np.abs(vals))), 1e-9)
     sizes = 35 + 320 * (np.abs(vals) / smax)
     sc    = ax.scatter(xy[:, 0], xy[:, 1], s=sizes, c=vals,
@@ -368,6 +383,7 @@ def _station_value_map(ax, geom, bounds, xy: np.ndarray, vals: np.ndarray,
     """Fixed-size symbol map: colour = value."""
     _boundary_plot(ax, geom)
     _map_axes_style(ax, bounds)
+    _add_north_arrow(ax)
     sc = ax.scatter(xy[:, 0], xy[:, 1], s=95, c=vals,
                     cmap=cmap, vmin=vlim[0], vmax=vlim[1],
                     edgecolors="k", linewidths=0.5, zorder=6)
