@@ -365,7 +365,226 @@ Standardise to `v4.0` everywhere. Change CHANGELOG heading from
 
 ---
 
+---
+
+## CMIP6 Sub-Project Fixes
+
+The following items apply to `CMIP6_package/` (v1) and `CMIP6_MME_v2/` (v2).
+Items are ordered: CRITICAL → MAJOR → MINOR within each tier.
+
+---
+
+## CMIP6 Tier 1 — Fix Before Any CMIP6 Submission (CRITICAL)
+
+---
+
+### FIX-C01 — Document or Implement Calendar Harmonisation
+
+**Defect:** CC-01  
+**Effort:** Low (documentation) or High (implementation)  
+**Impact:** Without this, the entire CMIP6 analysis is not reproducible
+
+Choose one:
+
+**(a) Documentation path (faster):**
+Add to methods section and `CMIP6_MME_v2/README.md`:
+> "All CMIP6 daily rainfall series were extracted from NetCDF using [tool name and version].
+> Calendar harmonisation to the proleptic Gregorian calendar was applied by [method: e.g.,
+> dropping Feb-29 for noleap models / linear interpolation for 360_day models]. The
+> extraction script is archived at [DOI/URL]."
+
+**(b) Implementation path (more robust):**
+Add an `xarray`/`cftime`-based ingestion step that reads raw CMIP6 NetCDFs and
+converts all calendar types to a common Gregorian basis before CSV export.
+
+---
+
+### FIX-C02 — Document or Implement Bias Correction
+
+**Defect:** CC-02  
+**Effort:** Low (documentation) or Very High (implementation)  
+**Impact:** Without this, absolute projected change values are unverifiable
+
+Choose one:
+
+**(a) Documentation path:**
+Add a "Bias Correction" subsection to `CMIP6_MME_v2/README.md`:
+> "Bias correction was applied using [QDM / Quantile Mapping / Delta Change] with
+> the 1981–2014 observed period as the reference. The correction was implemented
+> using [software, e.g., MBC R package, BCSA Python]. Bias-corrected daily series
+> are archived at [Zenodo DOI]."
+
+**(b) Implementation path:**
+Implement QDM (Cannon et al. 2015) in `CMIP6_MME_v2/src/bias_correction/qdm.py`.
+
+---
+
+### FIX-C03 — Fix `CMIP6_package` MME NaN Percentile Bug
+
+**Defect:** CC-03  
+**Effort:** Trivial (4 lines in one file)  
+**Impact:** Corrects P25/P75 ensemble spread values in all v1 tables and figures
+
+In `CMIP6_package/src/ensemble/mme.py`, replace:
+```python
+# Current (wrong):
+p25=lambda s: np.percentile(s, 25),
+p75=lambda s: np.percentile(s, 75),
+```
+With:
+```python
+# Correct (NaN-safe):
+p25=lambda s: float(np.percentile(s.dropna(), 25)) if s.notna().any() else np.nan,
+p75=lambda s: float(np.percentile(s.dropna(), 75)) if s.notna().any() else np.nan,
+```
+
+---
+
+## CMIP6 Tier 2 — Fix Before Final Submission (MAJOR)
+
+---
+
+### FIX-C04 — Fix Anomaly Baseline in `fig3_anomaly_ts()`
+
+**Defect:** CM-05  
+**Effort:** Low (~5 lines)  
+**Impact:** Makes anomaly figure reproducible across different future window configurations
+
+In `CMIP6_MME_v2/src/figures/make.py::fig3_anomaly_ts()`, replace the grand-mean baseline
+with the configured baseline period:
+```python
+# Current (wrong):
+baseline_mean = series.mean()
+
+# Correct:
+baseline_years = range(cfg["periods"]["baseline"]["start"],
+                       cfg["periods"]["baseline"]["end"] + 1)
+baseline_mean = series[series.index.isin(baseline_years)].mean()
+```
+
+---
+
+### FIX-C05 — Fix Change% to Compute Per-Model First
+
+**Defect:** CM-03  
+**Effort:** Low (~10 lines)  
+**Impact:** Correctly represents asymmetric inter-model spread in projected changes
+
+Refactor `compute_change_pct()` in both packages:
+```python
+# Correct approach:
+for model in models:
+    future_val   = future_df[model]
+    baseline_val = baseline_df[model]
+    change_pct[model] = 100.0 * (future_val - baseline_val) / baseline_val
+# Then: mean/median/P25/P75 of change_pct across models
+```
+
+---
+
+### FIX-C06 — Fix Hardcoded Scenarios in `CMIP6_package` Figures
+
+**Defect:** CM-01  
+**Effort:** Low (search-and-replace)  
+**Impact:** Allows v1 figures to respect `config.yaml` scenario settings
+
+In `CMIP6_package/src/figures/make.py`, replace:
+```python
+SCEN = ["ssp245", "ssp585"]
+for scn in ["historical", "ssp245", "ssp585"]:
+```
+With:
+```python
+SCEN = cfg.get("scenarios", ["ssp245", "ssp585"])
+for scn in ["historical"] + SCEN:
+```
+
+---
+
+### FIX-C07 — Add KGE `ddof=1` or Document Convention
+
+**Defect:** CM-07  
+**Effort:** Trivial (1–2 lines + documentation)
+
+In `CMIP6_MME_v2/src/validation/metrics.py::kge()`, change:
+```python
+sigma_s = np.std(sim, ddof=1)   # sample std, matching Gupta et al. (2009)
+sigma_o = np.std(obs, ddof=1)
+```
+Or document explicitly that `ddof=0` is intentional.
+
+---
+
+### FIX-C08 — Add MK Trend Analysis on Projected Series
+
+**Defect:** CM-04  
+**Effort:** Medium (~30 lines)  
+**Impact:** Completes the trend analysis narrative for projected future windows
+
+Add a `run_projected_trends()` function that loops over each model × each future
+window × each temporal scale, calls `standard_mk()` and `sens_slope()`, and
+reports Sen's slope (mm/yr), Z, p-value, and trend direction per model with MME statistics.
+
+---
+
+### FIX-C09 — Document Equal Model Weighting
+
+**Defect:** CM-02  
+**Effort:** Documentation only
+
+Add to methods section:
+> "All CMIP6 models are given equal weight in the multi-model ensemble. Model family
+> redundancy was not corrected. Future work may apply performance-based weighting
+> (e.g., ClimWIP, Knutti et al. 2017)."
+
+---
+
+## CMIP6 Tier 3 — Fix Before Camera-Ready (MINOR)
+
+---
+
+### FIX-C10 — Fix `CMIP6_package` `load_metadata()` for CSV Input
+
+**Defect:** Cm-01  
+**Effort:** Trivial
+
+In `CMIP6_package/src/utils/io.py::load_metadata()`, add:
+```python
+if path.suffix == ".csv":
+    return pd.read_csv(path, ...)
+```
+
+---
+
+### FIX-C11 — Fix `std = 0.0` for n=1 Stations
+
+**Defect:** Cm-02  
+**Effort:** Trivial
+
+Replace bare `np.std(vals)` with:
+```python
+std = np.nan if len(vals) <= 1 else np.std(vals, ddof=1)
+```
+
+---
+
+### FIX-C12 — Add Version Field to `config.yaml`
+
+**Defect:** Cm-03  
+**Effort:** Trivial
+
+Add to both `config.yaml` files:
+```yaml
+meta:
+  run_version: "2.0"
+  description: "CMIP6 MME rainfall trend analysis — Prachuap Khiri Khan"
+```
+
+---
+
 ## Summary Table
+
+### Rainfall Trend Analysis Pipeline
 
 | ID | Severity | Description | Effort | Pre-submission? |
 |----|----------|-------------|--------|----------------|
@@ -389,4 +608,23 @@ Standardise to `v4.0` everywhere. Change CHANGELOG heading from
 | FIX-18 | MINOR | Remove redundant rcParam DPI | Trivial | Optional |
 | FIX-19 | MINOR | Unify VERSION string | Trivial | Optional |
 
-**Minimum viable fix set for Q1 submission:** FIX-01 through FIX-10 (all CRITICAL + high-impact MAJOR).
+**Minimum viable fix set for Q1 submission (rainfall pipeline):** FIX-01 through FIX-10.
+
+### CMIP6 Sub-Projects
+
+| ID | Severity | Description | Effort | Pre-submission? |
+|----|----------|-------------|--------|----------------|
+| FIX-C01 | CRITICAL | Document/implement calendar handling | Low–High | ✓ Required |
+| FIX-C02 | CRITICAL | Document/implement bias correction | Low–Very High | ✓ Required |
+| FIX-C03 | CRITICAL | CMIP6_package NaN percentile bug | Trivial | ✓ Required |
+| FIX-C04 | MAJOR | Fix anomaly baseline to use configured period | Low | ✓ Recommended |
+| FIX-C05 | MAJOR | Fix change% to compute per-model first | Low | ✓ Recommended |
+| FIX-C06 | MAJOR | Fix hardcoded scenarios in v1 figures | Low | ✓ Recommended |
+| FIX-C07 | MAJOR | KGE ddof convention | Trivial | ✓ Recommended |
+| FIX-C08 | MAJOR | Add MK trend analysis on projected series | Medium | ✓ Recommended |
+| FIX-C09 | MAJOR | Document equal model weighting | Docs | ✓ Recommended |
+| FIX-C10 | MINOR | v1 load_metadata CSV support | Trivial | Optional |
+| FIX-C11 | MINOR | std=NaN for n=1 | Trivial | Optional |
+| FIX-C12 | MINOR | Add version to config.yaml | Trivial | Optional |
+
+**Minimum viable fix set for Q1 submission (CMIP6):** FIX-C01 through FIX-C09.

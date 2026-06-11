@@ -529,3 +529,338 @@ CHANGELOG header reads `[v4.0_hydroclimatology_Q1]` but `rta/config.py` has
 version strings for the same release. Adopt a single canonical form.
 
 **Fix:** Use `v4.0` consistently across CHANGELOG, config, and README.
+
+---
+
+## CMIP6 Sub-Project Defects
+
+The following defects apply to `CMIP6_package/` (v1) and `CMIP6_MME_v2/` (v2).
+
+---
+
+## CMIP6 CRITICAL Defects
+
+---
+
+### CC-01 — No CMIP6 Calendar Harmonisation Code
+
+**Severity:** CRITICAL  
+**Files:** Both `CMIP6_package/` and `CMIP6_MME_v2/` — entire codebase
+
+**Description:**
+Neither package contains any code to handle CMIP6 calendar variants.
+A full-text search of all Python source files finds no references to `noleap`,
+`360_day`, `proleptic_gregorian`, `cftime`, `xarray.cftime_range`, leap-day
+filtering, or day-count normalisation.
+
+CMIP6 models use at least four calendar systems:
+
+| Calendar | Days/yr | Leap years |
+|----------|---------|------------|
+| `standard` | 365.25 avg | Yes |
+| `proleptic_gregorian` | 365.25 avg | Yes |
+| `noleap` / `365_day` | 365 fixed | No |
+| `360_day` | 360 fixed | No |
+
+When a `noleap` model series is ingested as Gregorian, annual totals drift by up to
+30 day-shifts over a 30-year window, corrupting wet/dry season boundaries. A `360_day`
+CSV with months of exactly 30 days will produce `NaT` values or silently dropped rows
+when `pd.to_datetime()` encounters day 30 in 28-day or 31-day Gregorian months.
+
+**Scientific Impact:** All downstream trend statistics (MK, MMK, Sen's slope) and
+validation metrics (KGE, NSE) derived from non-Gregorian model output are incorrect
+if calendar harmonisation was not applied during the NetCDF-to-CSV extraction step.
+The analysis is not independently reproducible without documentation of this step.
+
+**Fix:**
+- Option A: Document unambiguously in the methods section that all CMIP6 data was
+  calendar-harmonised to Gregorian during extraction, name the tool/script used, and
+  archive or reference that script.
+- Option B: Implement calendar-aware ingestion in the pipeline using `xarray` + `cftime`
+  before CSV generation.
+
+---
+
+### CC-02 — No Bias Correction Implementation
+
+**Severity:** CRITICAL  
+**Files:** Both `CMIP6_package/` and `CMIP6_MME_v2/` — entire codebase
+
+**Description:**
+No bias correction code exists anywhere in either package. Searched for: `qdm`,
+`quantile_delta`, `quantile_map`, `transfer_func`, `empirical_cdf`, `delta_change`,
+`delta_scal`, `bcsd`, `gamma_fit`, `fit_dist`. None found.
+
+The code assumes bias-corrected CSVs are provided as inputs, but neither the methods
+section of any documentation file nor any README explicitly states:
+- Which bias correction method was applied (QDM, QM, Delta Change, BCSD, etc.)
+- What reference period was used for the correction functions
+- What software version performed the correction
+- Where the bias-corrected data files are archived
+
+**Scientific Impact:** Without this information:
+1. Absolute projected change values (mm/yr) cannot be validated against observed baselines.
+2. Wet-day counts and intensity distributions are not directly comparable to observed data.
+3. The KGE/NSE/PBIAS validation metrics conflate raw model skill with bias-corrected skill —
+   conceptually distinct quantities that must be labelled separately.
+4. The analysis cannot be independently reproduced.
+
+**Fix:** Add a "Data Pre-Processing" methods section covering: NetCDF extraction tool,
+spatial interpolation method (nearest-neighbour/bilinear/IDW), calendar harmonisation,
+bias correction method (cite Cannon et al. 2015 for QDM or equivalent), reference period,
+and either a data DOI or a fully deterministic generation script.
+
+---
+
+### CC-03 — `CMIP6_package` MME Percentiles Have No NaN Guard
+
+**Severity:** CRITICAL  
+**File:** `CMIP6_package/src/ensemble/mme.py` — `build_mme()` function
+
+**Description:**
+```python
+# Current (wrong — no NaN guard):
+p25=lambda s: np.percentile(s, 25),
+p75=lambda s: np.percentile(s, 75),
+```
+When any model has a missing year within the aggregation window, the pandas `s` series
+contains `NaN`. `np.percentile` on a NaN-containing array:
+- Returns NaN-contaminated output silently on NumPy < 1.22
+- Raises a `TypeError` on NumPy ≥ 1.22 (generator input to deprecated `np.percentile` path)
+
+The v2 version (`CMIP6_MME_v2/src/ensemble/mme.py`) correctly uses:
+```python
+p25=lambda s: float(np.percentile(s.dropna(), 25)) if s.notna().any() else np.nan,
+p75=lambda s: float(np.percentile(s.dropna(), 75)) if s.notna().any() else np.nan,
+```
+
+**Scientific Impact:** v1 (`CMIP6_package`) P25/P75 ensemble spread values are
+unreliable whenever any CMIP6 model has an incomplete year within an aggregation window.
+This silently corrupts all ensemble spread columns in v1 output tables and figures.
+
+**Fix:** Copy the NaN-safe lambda functions from `CMIP6_MME_v2/src/ensemble/mme.py`
+into `CMIP6_package/src/ensemble/mme.py`.
+
+---
+
+## CMIP6 MAJOR Defects
+
+---
+
+### CM-01 — `CMIP6_package` Figures Hardcode SSP Scenarios
+
+**Severity:** MAJOR  
+**File:** `CMIP6_package/src/figures/make.py`
+
+**Description:**
+```python
+SCEN = ["ssp245", "ssp585"]         # hardcoded at module level
+# ...
+for scn in ["historical", "ssp245", "ssp585"]:   # hardcoded in loop
+```
+The `CMIP6_MME_v2` version reads scenarios dynamically from `cfg["scenarios"]`.
+If a user configures `config.yaml` with `scenarios: [ssp126, ssp370]`, the v1 figures
+produce silent wrong output (missing configured scenarios, potential KeyErrors).
+
+**Fix:** Replace all hardcoded scenario lists with `cfg.get("scenarios", ["ssp245","ssp585"])`.
+
+---
+
+### CM-02 — Equal Model Weighting Undocumented; No Model Independence Check
+
+**Severity:** MAJOR  
+**Files:** Both packages — `build_mme()` in `mme.py`
+
+**Description:**
+Both packages apply equal weighting to all models in the multi-model ensemble. For CMIP6
+ensembles that include multiple variants from the same modelling centre (e.g., multiple
+ACCESS-ESM1-5 runs or CESM2 variants), equal weighting over-represents those model
+families relative to independent model families.
+
+No model independence metric (e.g., pairwise correlation of historical simulated rainfall)
+is computed. No performance weighting (e.g., ClimWIP, Knutti et al. 2017) is applied.
+
+**Fix:** At minimum, document in the methods that equal weighting is used and acknowledge
+model family redundancy as a limitation. For Q1 publication, consider a simple
+correlation-based independence screen or cite recent guidance (e.g., Sanderson et al. 2015).
+
+---
+
+### CM-03 — Change% Computed on MME Statistics Rather Than Per-Model First
+
+**Severity:** MAJOR  
+**Files:** Both packages — change percentage computation in results tables
+
+**Description:**
+The current procedure:
+1. Compute MME mean of absolute future values → `future_mme`
+2. Compute MME mean of absolute baseline values → `baseline_mme`
+3. `change% = 100 × (future_mme − baseline_mme) / baseline_mme`
+
+The correct procedure for asymmetric inter-model distributions:
+1. Compute change% per model: `Δ_i = 100 × (future_i − baseline_i) / baseline_i`
+2. Aggregate `Δ_i` values to MME statistics (mean, median, P25, P75)
+
+These two procedures produce different results when inter-model spread is asymmetric.
+Computing change% of the mean systematically underestimates uncertainty in the change signal.
+
+**Fix:** Refactor `compute_change_pct()` to compute per-model percentage change first,
+then aggregate to MME statistics.
+
+---
+
+### CM-04 — No Trend Analysis on Projected Future Series
+
+**Severity:** MAJOR  
+**Files:** Both packages — no MK/Sen's slope computation for future windows
+
+**Description:**
+Neither package runs Mann-Kendall, Modified MK, or Sen's slope tests on projected
+annual/wet/dry series within future windows (2021–2050, 2071–2100). The only change
+quantification provided is the period-mean change percentage.
+
+This is a static period comparison, not a trend analysis. For Q1 hydroclimatology,
+monotonic trend detection within each future window is a standard expectation.
+
+**Fix:** Apply `run_all()` (or equivalent MK test loop) to each model's projected
+annual/wet/dry time series within each future window. Report Sen's slope (mm/yr/decade)
+and significance alongside period-mean change%.
+
+---
+
+### CM-05 — `fig3_anomaly_ts()` Uses Grand-Mean Rather Than Baseline-Period Anomaly
+
+**Severity:** MAJOR  
+**File:** `CMIP6_MME_v2/src/figures/make.py::fig3_anomaly_ts()`
+
+**Description:**
+Anomalies are computed relative to the grand mean of the entire concatenated time series
+(historical + future). This baseline shifts whenever the future window changes, making
+the anomaly figure non-reproducible across different run configurations. The IPCC AR6
+standard is to compute anomalies relative to a fixed reference period (here, the
+configured `periods.baseline` = 1981–2014).
+
+**Fix:** Compute baseline climatology exclusively over `cfg["periods"]["baseline"]` years,
+then subtract from all period values (historical and future alike).
+
+---
+
+### CM-06 — No Archived Input Pipeline for Bias-Corrected CSVs
+
+**Severity:** MAJOR  
+**Files:** Both packages — upstream data generation
+
+**Description:**
+The bias-corrected station-level CSVs that serve as primary inputs are not archived in
+the repository (correctly excluded given size). However, no deterministic, fully
+documented script exists to regenerate them from raw CMIP6 NetCDFs. Without either a
+data DOI (Zenodo, PANGAEA) or a reproducible extraction script, the analysis cannot
+be independently verified.
+
+**Fix:** Archive bias-corrected inputs with a persistent data DOI, or provide a complete
+preprocessing script (NetCDF extraction → calendar harmonisation → spatial interpolation
+→ bias correction) with pinned dependency versions.
+
+---
+
+### CM-07 — KGE Uses Population Standard Deviation (`ddof=0`) Undocumented
+
+**Severity:** MAJOR  
+**File:** `CMIP6_MME_v2/src/validation/metrics.py::kge()`
+
+**Description:**
+```python
+sigma_s = np.std(sim)    # ddof=0 — population std
+sigma_o = np.std(obs)    # ddof=0 — population std
+```
+The Gupta et al. (2009) KGE formulation uses sample standard deviation (`ddof=1`).
+NumPy's `np.std()` defaults to `ddof=0`. The difference is `√(n/(n-1))` — for n=34
+years this is ≈1.5%, small but unreported. The convention used must be stated explicitly
+in the methods to allow comparison with published KGE values from other studies.
+
+**Fix:** Either change to `np.std(sim, ddof=1)` to match Gupta et al. (2009), or document
+explicitly that population standard deviation is used and explain the choice.
+
+---
+
+## CMIP6 MINOR Defects
+
+---
+
+### Cm-01 — `CMIP6_package` `load_metadata()` Accepts Only `.xlsx`
+
+**Severity:** MINOR  
+**File:** `CMIP6_package/src/utils/io.py::load_metadata()`
+
+**Description:**
+The v1 function only accepts `.xlsx` format; the v2 equivalent accepts both `.xlsx`
+and `.csv`. Any user with station metadata in CSV format will get an undocumented error.
+
+**Fix:** Add CSV support matching v2: `pd.read_csv(path)` when suffix is `.csv`.
+
+---
+
+### Cm-02 — Standard Deviation Reported as `0.0` for n=1
+
+**Severity:** MINOR  
+**Files:** Both packages — `descriptive_stats()` equivalent functions
+
+**Description:**
+When a station has exactly one valid year in a period, the standard deviation is `0.0`
+rather than `NaN`. A std of 0.0 implies a known constant, which is misleading. For n=1,
+std is undefined.
+
+**Fix:**
+```python
+std = np.nan if n <= 1 else np.std(vals, ddof=1)
+```
+
+---
+
+### Cm-03 — No Version or Run ID in `config.yaml`
+
+**Severity:** MINOR  
+**Files:** `CMIP6_package/config/config.yaml`, `CMIP6_MME_v2/config/config.yaml`
+
+**Description:**
+Neither configuration file contains a `version`, `run_id`, or `timestamp` field.
+When a user changes configuration settings between runs, there is no way to determine
+which configuration produced a given output set. This complicates reproducibility tracking.
+
+**Fix:** Add `run_version: "1.0"` or `config_hash: auto` to each config file.
+Log the config snapshot to the Excel output (v2 already logs config content but
+not a version identifier).
+
+---
+
+### Cm-04 — No Monthly Aggregation of Projected Series
+
+**Severity:** MINOR  
+**Files:** Both packages — seasonal aggregation
+
+**Description:**
+The observed pipeline produces monthly aggregates for climatology figures (Fig 7).
+The CMIP6 packages produce only annual, wet-season, and dry-season aggregates.
+Direct comparison of observed vs projected monthly climatology is not possible
+without adding monthly aggregation to the CMIP6 pipeline.
+
+**Fix:** Add a `monthly` aggregation path to `_wide_to_yearly()` (or a separate
+function) analogous to the observed pipeline.
+
+---
+
+### Cm-05 — No Validation That Model Series Spans Configured Period
+
+**Severity:** MINOR  
+**Files:** Both packages — data loading
+
+**Description:**
+No code checks whether a loaded CMIP6 model's time series actually covers the full
+configured window (e.g., 2021–2050 for near-future). Partial coverage (e.g., a model
+terminating at 2045) is silently accepted, with the missing years treated as NaN.
+The completeness fraction for such models falls below the 80% gate and is excluded,
+but no warning is raised.
+
+**Fix:** After loading each model's series, check coverage against the configured
+period and log a warning if coverage < 80%: `"Model X covers only Y% of near_future period"`.
+

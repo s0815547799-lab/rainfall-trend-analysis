@@ -18,8 +18,10 @@ checkpoint/resume, and true WGS84 geographic maps.
 The **scientific logic is fundamentally sound** and the dominant analysis path (Standard MK,
 Modified MK, Sen's slope) is correctly implemented per the cited references.
 
-However, **five defects are CRITICAL** and must be resolved before any submission or public
+However, **eight defects are CRITICAL** and must be resolved before any submission or public
 release:
+
+**Rainfall trend analysis pipeline:**
 
 | Severity | Count | Nature |
 |----------|-------|--------|
@@ -27,9 +29,19 @@ release:
 | MAJOR | 10 | Bias, misleading statistics, dependency/structure issues |
 | MINOR | 8 | Documentation inconsistencies, dead code, non-standard practices |
 
+**CMIP6 sub-projects (CMIP6_package / CMIP6_MME_v2):**
+
+| Severity | Count | Nature |
+|----------|-------|--------|
+| CRITICAL | 3 | Missing calendar handling, missing bias correction, NaN percentile bug |
+| MAJOR | 7 | Hardcoded scenarios, no trend on projections, change% methodology, anomaly base, reproducibility |
+| MINOR | 5 | Metadata loader, std=0 for n=1, no config versioning, missing monthly aggregation, period coverage |
+
 ---
 
 ## 2. Scope of Files Audited
+
+### Rainfall Trend Analysis Pipeline
 
 | File / Module | Status |
 |---------------|--------|
@@ -52,6 +64,25 @@ release:
 | `rta/figures/taylor.py` | Header audited |
 | `Comparative_4MMK.py` | Header audited |
 | `calval_split.py` | Header audited |
+
+### CMIP6 Sub-Projects
+
+| File / Module | Status |
+|---------------|--------|
+| `CMIP6_MME_v2/config/config.yaml` | Fully audited |
+| `CMIP6_MME_v2/main.py` | Fully audited |
+| `CMIP6_MME_v2/src/rainfall/seasonal.py` | Fully audited |
+| `CMIP6_MME_v2/src/ensemble/mme.py` | Fully audited |
+| `CMIP6_MME_v2/src/gis/interp.py` | Fully audited |
+| `CMIP6_MME_v2/src/validation/metrics.py` | Fully audited |
+| `CMIP6_MME_v2/src/tables/results.py` | Fully audited |
+| `CMIP6_MME_v2/src/figures/make.py` | Fully audited |
+| `CMIP6_MME_v2/src/utils/io.py` | Fully audited |
+| `CMIP6_package/config/config.yaml` | Fully audited |
+| `CMIP6_package/main.py` | Fully audited |
+| `CMIP6_package/src/ensemble/mme.py` | Fully audited |
+| `CMIP6_package/src/figures/make.py` | Fully audited |
+| `CMIP6_package/src/utils/io.py` | Fully audited |
 
 ---
 
@@ -347,6 +378,69 @@ The following unrelated projects/files are committed to this repository:
 | Change-point tests (Pettitt/CUSUM) | ✗ | Common companion analysis |
 | Stationarity tests (ADF) | ✗ | Common companion analysis |
 | requirements.txt | ✗ | |
+
+---
+
+---
+
+## 9. CMIP6 Sub-Project Scientific Review
+
+A dedicated audit of `CMIP6_package/` (v1) and `CMIP6_MME_v2/` (v2) was conducted.
+Full findings are in `CMIP6_REVIEW_REPORT.md`. Summary:
+
+### 9.1 Architecture
+
+Both packages ingest pre-processed station-level CSVs (assumed bias-corrected from CMIP6
+NetCDF). Version 2 extends version 1 with dynamic scenario support, NaN-safe percentiles,
+both `.xlsx`/`.csv` metadata loading, and a 3-level publication table format.
+
+### 9.2 CRITICAL Omissions
+
+**CC-01 — No calendar harmonisation code.**
+Neither package contains any code for CMIP6 calendar variants (`noleap`, `360_day`,
+`proleptic_gregorian`). No references to `cftime`, `xarray.cftime_range`, or leap-day
+normalisation exist. Either calendar conversion was done during NetCDF extraction and must
+be fully documented in the methods, or it must be implemented in the pipeline.
+
+**CC-02 — No bias correction implementation.**
+No QDM, QM, Delta Change, or BCSD code exists in either package. Bias correction is
+assumed pre-applied to input CSVs. Without explicit documentation of the BC method,
+reference period, software version, and archived corrected data, the analysis is not
+independently reproducible. This is a Q1 blocker.
+
+**CC-03 (v1 only) — MME percentile NaN bug.**
+`CMIP6_package/src/ensemble/mme.py` computes `p25`/`p75` via bare `np.percentile(s, 25)`.
+When any model has a missing year, the pandas `s` series contains NaN. On NumPy ≥ 1.22
+this raises; on older versions it silently propagates NaN. Version 2 correctly uses
+`np.percentile(s.dropna(), 25) if s.notna().any() else np.nan`.
+
+### 9.3 MAJOR Findings
+
+| ID | Description |
+|----|-------------|
+| CM-01 | v1 figures hardcode `SCEN = ["ssp245","ssp585"]`; ignores `cfg["scenarios"]` |
+| CM-02 | Equal model weighting undocumented; model family redundancy not corrected |
+| CM-03 | Change% computed on MME statistics rather than per-model change% aggregated to MME |
+| CM-04 | No MK/Sen's slope trend analysis within projected future windows (2021–2050, 2071–2100) |
+| CM-05 | `fig3_anomaly_ts()` uses grand-mean baseline instead of configured baseline period |
+| CM-06 | No archived or deterministic script to regenerate bias-corrected CSV inputs from raw CMIP6 |
+| CM-07 | KGE computed with `ddof=0` (population std); Gupta et al. (2009) uses `ddof=1`; undocumented |
+
+### 9.4 MINOR Findings
+
+| ID | Description |
+|----|-------------|
+| Cm-01 | `CMIP6_package` `load_metadata()` accepts only `.xlsx`; v2 accepts both |
+| Cm-02 | `std = 0.0` reported for stations with n=1 valid year instead of `NaN` |
+| Cm-03 | No `version` or `run_id` in `config.yaml`; outputs cannot be traced to config |
+| Cm-04 | No monthly aggregation for projected series; prevents climatology comparison |
+| Cm-05 | No check that loaded model series actually spans the full configured period |
+
+### 9.5 Reproducibility
+
+Deterministic methods (IDW, kriging, ensemble statistics) require no random seeds.
+The analysis is NOT independently reproducible due to CC-01 and CC-02. Resolving
+these two omissions is the minimum viable requirement for Q1 submission of CMIP6 results.
 
 ---
 
