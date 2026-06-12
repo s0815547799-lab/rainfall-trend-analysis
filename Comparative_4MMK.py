@@ -29,6 +29,17 @@ CORRECTIONS APPLIED (v2.0):
   [FIX-5 MINOR]   _ci95: uses exact t-distribution instead of z=1.96.
   [FIX-6 MINOR]   Added note: X₀ ~ N(0,σ) is a practical (not exact
                    stationary) initialisation; burn-in comment added.
+
+CORRECTIONS APPLIED (v2.1):
+  [FIX-7 CRITICAL] modified_mk_hamed_rao: VIF sum now uses only statistically
+                   significant autocorrelation lags (|ρ_k| > 1.96/√n), per
+                   Hamed & Rao (1998) strictly and CLAUDE.md §6.5.
+                   Previously ALL lags were summed, inflating n* correction.
+  [FIX-8 MODERATE] MIN_N = 10 constant added; prewhitening_mk and tfpw_mk
+                   now re-check len(whitened_series) >= MIN_N after
+                   constructing the residual series, per CLAUDE.md §12.1.
+  [FIX-9 MINOR]   compute_autocorrelation diagnostic VIF now also uses only
+                   significant lags for consistency with H&R98.
 ================================================================================
 """
 
@@ -87,6 +98,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 RANDOM_SEED       = 42
 N_MONTE_CARLO     = 10_000
 ALPHA             = 0.05
+MIN_N             = 10        # minimum series length for MK test (post-whitening)
 COMPLETENESS_THR  = 0.90
 WET_MONTHS        = [5, 6, 7, 8, 9, 10]          # May–October
 DRY_MONTHS        = [11, 12, 1, 2, 3, 4]          # November–April
@@ -430,13 +442,15 @@ def compute_autocorrelation(series: np.ndarray, nlags: int = 20,
     dw        = float(durbin_watson(x))
     adf_stat, adf_pval, adf_lags, *_ = adfuller(x, autolag="AIC")
 
-    # VIF = n / n*  (Hamed & Rao 1998, Eq. 3)
+    # VIF = n / n*  (Hamed & Rao 1998, Eq. 3) — significant lags only [FIX-9]
     rho     = acf_vals[:nlags + 1]
     assert abs(rho[0] - 1.0) < 1e-6, "ACF lag-0 must be 1.0"
+    sig_thresh_diag = norm.ppf(0.975) / np.sqrt(n)
     vif_sum = 0.0
     for i in range(1, nlags + 1):
-        vif_sum += (n - i) / n * rho[i]
-    vif   = 1.0 + 2.0 * vif_sum
+        if abs(rho[i]) > sig_thresh_diag:
+            vif_sum += (n - i) / n * rho[i]
+    vif   = max(1.0, 1.0 + 2.0 * vif_sum)
     n_eff = max(3, n / vif)
 
     result = {
@@ -517,7 +531,11 @@ def modified_mk_hamed_rao(x: np.ndarray) -> dict:
     ranks  = stats.rankdata(x)
     nlags  = min(n - 2, 20)
     rho    = acf(ranks, nlags=nlags, fft=True, alpha=None)
-    vif_sum = sum((n - i) / n * rho[i] for i in range(1, nlags + 1))
+    # [FIX-7] Only sum lags with statistically significant autocorrelation
+    # (|ρ_k| > 1.96/√n), per Hamed & Rao (1998) strictly.
+    sig_thresh = norm.ppf(0.975) / np.sqrt(n)
+    vif_sum = sum((n - i) / n * rho[i] for i in range(1, nlags + 1)
+                  if abs(rho[i]) > sig_thresh)
     # [FIX-3] clamp at 1.0 — VIF < 1 implies deflation, physically unreasonable
     #         for hydroclimatic series with predominantly positive autocorrelation.
     vif        = max(1.0, 1.0 + 2.0 * vif_sum)
@@ -540,11 +558,15 @@ def prewhitening_mk(x: np.ndarray) -> dict:
     """
     x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
     n = len(x)
-    if n < 5:
+    if n < MIN_N + 1:
         return {k: np.nan for k in
                 ["S","Var_S","Z","tau","p","slope","phi","method"]}
     phi      = np.corrcoef(x[:-1], x[1:])[0, 1]
     x_pw     = x[1:] - phi * x[:-1]
+    # [FIX-8] Re-check minimum length after whitening reduces series by 1
+    if len(x_pw) < MIN_N:
+        return {k: np.nan for k in
+                ["S","Var_S","Z","tau","p","slope","phi","method"]}
     mk_res   = standard_mk(x_pw)
     mk_res["phi"]      = phi
     mk_res["method"]   = "PW-MK"
@@ -560,7 +582,7 @@ def tfpw_mk(x: np.ndarray) -> dict:
     """
     x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
     n = len(x)
-    if n < 5:
+    if n < MIN_N + 1:
         return {k: np.nan for k in
                 ["S","Var_S","Z","tau","p","slope","phi","method"]}
     t      = np.arange(1, n + 1, dtype=float)
@@ -571,6 +593,10 @@ def tfpw_mk(x: np.ndarray) -> dict:
     y_pw   = y[1:] - phi * y[:-1]               # Step 4
     t_pw   = t[1:]
     z      = y_pw + beta * t_pw                  # Step 5: restore trend
+    # [FIX-8] Re-check minimum length after whitening reduces series by 1
+    if len(z) < MIN_N:
+        return {k: np.nan for k in
+                ["S","Var_S","Z","tau","p","slope","phi","method"]}
     mk_res = standard_mk(z)         # Step 6
     mk_res["phi"]    = phi
     mk_res["slope"]  = beta         # original Sen's slope
