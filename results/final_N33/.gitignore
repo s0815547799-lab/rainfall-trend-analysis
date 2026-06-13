@@ -1,3 +1,7 @@
 # Allow all Output_TrendV4_* files in this publication archive directory.
 # Root .gitignore excludes them globally; this override re-includes them here.
 !Output_TrendV4_*
+
+# Allow the entire publication_maps/ sub-tree (figures, validation, manuscript).
+!publication_maps/
+!publication_maps/**
