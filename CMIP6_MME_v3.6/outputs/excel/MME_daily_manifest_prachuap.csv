@@ -1,0 +1,7 @@
+file,dataset,scenario,period,year_start,year_end,n_models,models,n_days,n_stations
+MME_daily_Raw_historical_7GCM_prachuap.xlsx,Raw,historical,past (historical),1981,2014,7,"ACCESS-ESM1-5, CESM2, CanESM5, EC-Earth3, FGOALS-g3, MIROC6, MRI-ESM2-0",12410,28
+MME_daily_Raw_ssp245_7GCM_prachuap.xlsx,Raw,ssp245,future (ssp245),2015,2100,7,"ACCESS-ESM1-5, CESM2, CanESM5, EC-Earth3, FGOALS-g3, MIROC6, MRI-ESM2-0",31390,28
+MME_daily_Raw_ssp585_7GCM_prachuap.xlsx,Raw,ssp585,future (ssp585),2015,2100,7,"ACCESS-ESM1-5, CESM2, CanESM5, EC-Earth3, FGOALS-g3, MIROC6, MRI-ESM2-0",31390,28
+MME_daily_BC_historical_7GCM_prachuap.xlsx,BC,historical,past (historical),1981,2014,7,"ACCESS-ESM1-5, CESM2, CanESM5, EC-Earth3, FGOALS-g3, MIROC6, MRI-ESM2-0",12410,28
+MME_daily_BC_ssp245_7GCM_prachuap.xlsx,BC,ssp245,future (ssp245),2015,2100,7,"ACCESS-ESM1-5, CESM2, CanESM5, EC-Earth3, FGOALS-g3, MIROC6, MRI-ESM2-0",31390,28
+MME_daily_BC_ssp585_7GCM_prachuap.xlsx,BC,ssp585,future (ssp585),2015,2100,7,"ACCESS-ESM1-5, CESM2, CanESM5, EC-Earth3, FGOALS-g3, MIROC6, MRI-ESM2-0",31390,28
