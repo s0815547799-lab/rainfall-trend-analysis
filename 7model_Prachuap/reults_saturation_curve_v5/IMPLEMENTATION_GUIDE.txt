@@ -1,0 +1,268 @@
+================================================================================
+IMPLEMENTATION GUIDE: Figure Improvements (saturation_curve_v5.py)
+================================================================================
+
+Based on รายการปรับปรุงภาพ.pdf requirements
+
+PRIORITY ISSUES:
+================================================================================
+1. FIGURE 3 (HIGHEST) - Spatial Saturation
+   - Legend occupies ~20% of figure area
+   - Station colors are too similar (S2, S3, S12 indistinguishable)
+   - Heatmap text too small and crowded
+   - Heatmap width needs to increase 30%
+
+2. FIGURE 5 (SECOND) - Spatial Consensus  
+   - Excessive upper white space (ylim ~110% should be 102%)
+   - Duplicated legends in all 4 panels
+   - Need annotation for early saturated/non-saturated
+
+3. FIGURES 1, 2, 4 - Legend/Layout optimization
+4. GLOBAL - Typography and grid improvements
+
+================================================================================
+MODIFICATIONS BY SCOPE
+================================================================================
+
+A. GLOBAL RCPARAMS (§0 - around line 130)
+─────────────────────────────────────────
+
+Current:
+  "font.family": "serif"
+  "font.serif": ["Times New Roman", "DejaVu Serif"]
+  "grid.alpha": 0.40
+  "grid.linewidth": 0.6
+
+Change to:
+  "font.family": "serif"
+  "font.serif": ["Times New Roman", "Nimbus Roman", "DejaVu Serif"]
+  "grid.alpha": 0.20          # Reduce grid dominance
+  "grid.linewidth": 0.5       # Reduce grid prominence
+
+Add DPI option for production export:
+  DPI = 600  (submission) or 1200 (production) — make configurable
+
+────────────────────────────────────────────────────────────────────────────
+
+B. FIGURE 1 — fig1_saturation_performance() (line 833)
+──────────────────────────────────────────────────────
+
+Current Status: ✓ Legend and spacing mostly done in prior commit
+Remaining:
+  - Panel label (a), (b), (c), (d) fontsize from 12pt → 16pt bold
+  - N* annotations: ensure they're positioned OUTSIDE curves via better
+    callout positioning logic
+
+Changes:
+  Line 934-939 (title formatting):
+    - Panel label fontsize: 16–18, bold
+
+────────────────────────────────────────────────────────────────────────────
+
+C. FIGURE 2 — fig2_saturation_spread() (line 995)
+───────────────────────────────────────────────
+
+Issue 1: Panel (c) legend blocks data
+Solution:
+  Line 1132-1134: Change legend location
+    OLD: loc="lower right"
+    NEW: loc="lower center", bbox_to_anchor=(0.5, -0.15)
+
+Issue 2: Right margin wasted space
+Solution:
+  Line 1091-1092: Add xlim constraint after panel (c)
+    NEW: ax3.set_xlim(0.9, M + 0.1)
+
+Issue 3: Red/blue too saturated
+Solution:
+  Line 1104-1106: Use muted colors
+    C["raw"] → slightly muted red (RGB: 192, 71, 71)
+    C["bc"] → slightly muted blue (RGB: 69, 121, 193)
+  OR: Keep colorblind-safe palette but reduce alpha by 0.1
+
+Panel label fontsize:
+  Line 1036, 1080, 1127: Increase to 16pt bold
+
+────────────────────────────────────────────────────────────────────────────
+
+D. FIGURE 3 — fig3_saturation_spatial() (line 1152) [HIGHEST PRIORITY]
+──────────────────────────────────────────────────────────
+
+Issue 1: Panel legends 20% of figure area
+Solution:
+  Line 1248-1267: REMOVE all ax_use.legend() calls
+  Create SINGLE figure-level legend after loop
+    - ncol=6 (show all stations in one row at bottom)
+    - loc="lower center", bbox_to_anchor=(0.5, -0.08)
+
+Issue 2: Station colors too similar
+Solution:
+  Line 1161-1169: Replace tab20 with Glasbey palette
+    NEW:
+      from glassbey import Glassbey  # If available
+      # OR use cmocean categorical palette
+      cmap_stn = cm.get_cmap("cmocean.ice", max(n_s, 1))
+      # OR: matplotlib's tab20b/tab20c for greater contrast
+
+Issue 3: Heatmap text too small
+Solution:
+  Line 1289-1290: Increase heatmap annotation fontsize
+    OLD: fontsize=14
+    NEW: fontsize=14 (already done, but ensure bold=True)
+    Verify: fontweight="bold" ✓
+
+Issue 4: Heatmap width too narrow
+Solution:
+  Line 1172: Adjust GridSpec width_ratios
+    OLD: gs = gridspec.GridSpec(1, 3, ...)
+    NEW: gs = gridspec.GridSpec(1, 3, width_ratios=[0.29, 0.29, 0.42], ...)
+    # Increase last panel from ~0.33 to ~0.42 (≈30% wider)
+
+Issue 5: Panel labels fontsize
+Solution:
+  Lines 1238-1242: Increase panel label fontsize to 16pt bold
+
+────────────────────────────────────────────────────────────────────────────
+
+E. FIGURE 4 — fig4_integrated_profile() (line 1325)
+─────────────────────────────────────────────
+
+Issue 1: Panel legends block data
+Solution:
+  Line 1485-1489: REMOVE ax_L.legend() call
+  Create SINGLE figure-level legend AFTER loop
+    - Collect all handles from both panels
+    - Place at bottom-center with bbox_to_anchor=(0.5, -0.08)
+
+Issue 2: N* shading too dark
+Solution:
+  Line 1451-1452: Reduce alpha
+    OLD: alpha=0.07
+    NEW: alpha=0.05 (or 0.08 per spec)
+
+Issue 3: Actual vs fitted curves not distinct
+Solution:
+  Lines 1399-1400 (fitted curve):
+    OLD: ls=":", alpha=0.60
+    NEW: ls=":", alpha=0.60, lw=0.8 (noticeably thinner)
+
+Issue 4: Panel labels fontsize
+Solution:
+  Line ~1499: Increase panel label fontsize to 16pt bold
+
+────────────────────────────────────────────────────────────────────────────
+
+F. FIGURE 5 — fig5_spatial_consensus() (line 1532) [SECOND PRIORITY]
+────────────────────────────────────────────────
+
+Issue 1: Excessive upper white space
+Solution:
+  Line 1617, 1645: Reduce y-axis limits
+    OLD: ax_r.set_ylim(0, 108); ax.set_ylim(0, 108)
+    NEW: ax_r.set_ylim(0, 102); ax.set_ylim(0, 102)
+
+Issue 2: Duplicated legends in all panels
+Solution:
+  Line 1655-1663: REMOVE all panel legends
+  Create SINGLE figure-level legend AFTER loop
+    - Collect unique handles (no duplication)
+    - Place at bottom-center with bbox_to_anchor=(0.5, -0.05)
+
+Issue 3: Early ensemble sizes (N=1-4) appear empty
+Solution:
+  Line 1605-1610: Add conditional annotation
+    NEW: If pct_cumul[N] == 0 and N < M//2:
+         ax.text(x[N], 5, "No station\nsaturated\nyet",
+                 ha="center", va="bottom", fontsize=9, 
+                 style="italic", color=C["grey"], alpha=0.6)
+
+Issue 4: Panel labels fontsize
+Solution:
+  Line 1650: Increase panel label fontsize to 16pt bold
+
+────────────────────────────────────────────────────────────────────────────
+
+G. FIGURE 6 — fig6_intermetric_web() (line 1686)
+─────────────────────────────────────────────
+
+No major issues reported, but verify:
+  - Panel labels fontsize: 16pt bold
+  - Grid: alpha=0.20, linewidth=0.5
+
+────────────────────────────────────────────────────────────────────────────
+
+H. DPI CONFIGURATION
+──────────────────
+
+Current:
+  DPI = int(os.environ.get("CMIP6_DPI", 600))  # Line 89
+
+Option 1 (keep current):
+  Keep 600 as default for submission
+
+Option 2 (add production export):
+  Add env variable support:
+    DPI_SUBMISSION = 600
+    DPI_PRODUCTION = 1200
+    
+  Modify savefig() function to support both:
+    # Call with dpi parameter in each figure function
+
+================================================================================
+CODE DIFF STRATEGY
+================================================================================
+
+Approach: Create modular diffs for each figure + global settings
+
+Files to modify:
+  1. saturation_curve_v5.py
+
+Changes per function:
+  - fig1_saturation_performance: Minor (panel labels)
+  - fig2_saturation_spread: Medium (legend position, xlim, colors, labels)
+  - fig3_saturation_spatial: MAJOR (legend, colors, heatmap layout, labels)
+  - fig4_integrated_profile: Medium (legend, shading alpha, line width)
+  - fig5_spatial_consensus: MAJOR (ylim, legends, annotations, labels)
+  - Global rcParams: Minor (grid, font)
+
+Total impact: ~200-300 lines of changes (mostly legend repositioning)
+
+================================================================================
+VERIFICATION CHECKLIST
+================================================================================
+
+After applying changes, verify:
+
+Legend placement:
+  ✓ No legends overlay data curves/bars
+  ✓ No legends are clipped by figure borders
+  ✓ Figure-level legends positioned consistently at bottom-center
+
+Colors:
+  ✓ Station colors in Fig 3 are visually distinct
+  ✓ Colorblind-safe palette maintained
+  ✓ Colors match publication standards
+
+Spacing & Layout:
+  ✓ Panel labels clearly visible (16pt+)
+  ✓ Heatmap annotations readable (14pt+)
+  ✓ White space ≤ 15% of figure area
+  ✓ No clipped axis labels or station names
+  ✓ Grid is subtle (not visually dominant)
+
+Grid quality:
+  ✓ Grid does not distract from data
+  ✓ Grid provides reference (not too faint)
+
+Export:
+  ✓ All figures render at 600 DPI
+  ✓ Individual panels export correctly
+  ✓ save_individual_panels() still functional
+
+Science:
+  ✓ No changes to saturation calculations
+  ✓ No changes to bootstrap procedure
+  ✓ No changes to metric definitions
+  ✓ All numerical outputs identical
+
+================================================================================

@@ -1,0 +1,276 @@
+--- saturation_curve_v5.py (original)
++++ saturation_curve_v5.py (modified - all figure improvements v5.1)
+@@ -129,8 +129,8 @@ def _xsc(ws, r, c, val=None, bold=False, italic=False,
+ # ── rcParams — bold, large, publication ─────────────────────────────
+ plt.rcParams.update({
+     "font.family":         "serif",
+-    "font.serif":          ["Times New Roman", "DejaVu Serif"],
++    "font.serif":          ["Times New Roman", "Nimbus Roman", "DejaVu Serif"],
+     "font.size":           13,
+     "axes.titlesize":      14,
+     "axes.titleweight":    "bold",
+@@ -146,9 +146,9 @@ plt.rcParams.update({
+     "axes.spines.right":   False,
+     "axes.grid":           True,
+     "grid.linestyle":      "--",
+-    "grid.linewidth":      0.6,
+-    "grid.alpha":          0.40,
++    "grid.linewidth":      0.5,
++    "grid.alpha":          0.20,
+     "grid.color":          "#B0BEC5",
+     "savefig.bbox":        "tight",
+     "savefig.pad_inches":  0.15,
+@@ -934,7 +934,7 @@ def fig1_saturation_performance(
+         ax.set_title(f"{panel}  {ylabel}\n"
+                      f"     {direction}  |  "
+                      f"N* (Raw): {raw_sat[met]}  |  "
+                      f"N* (BC): {bc_sat[met]}  [{CI_LEVEL}%CI: "
+                      f"{bc_boot_ci[met][1]}–{bc_boot_ci[met][2]}]",
+-                     loc="left", fontsize=12, fontweight="bold", pad=5)
++                     loc="left", fontsize=16, fontweight="bold", pad=5)
+ 
+@@ -1036,7 +1036,7 @@ def fig2_saturation_spread(
+     ax.set_title("(a)  Ensemble Spread vs Ensemble Size\n"
+                  "     N=1: spread = 0 (single model)  |  "
+                  "Higher = larger model disagreement",
+-                 loc="left", fontsize=12, fontweight="bold", pad=5)
++                 loc="left", fontsize=16, fontweight="bold", pad=5)
+ 
+@@ -1080,7 +1080,7 @@ def fig2_saturation_spread(
+     ax2.set_title("(b)  Cumulative Uncertainty Reduction Rate\n"
+                   "     % reduction in inter-model spread relative to 2-model ensemble",
+-                  loc="left", fontsize=12, fontweight="bold", pad=5)
++                  loc="left", fontsize=16, fontweight="bold", pad=5)
+ 
+@@ -1127,7 +1127,7 @@ def fig2_saturation_spread(
+     ax3.set_title("(c)  KGE Improvement vs Ensemble Spread\n"
+                   "     Trade-off: performance gain vs model disagreement (BC)",
+-                  loc="left", fontsize=12, fontweight="bold", pad=5)
++                  loc="left", fontsize=16, fontweight="bold", pad=5)
+ 
+     lines_c  = [l1, l2]
+     labels_c = [l.get_label() for l in lines_c]
+     ax3.legend(lines_c, labels_c, fontsize=11.5, frameon=True,
+-               edgecolor="#B0BEC5", facecolor="white", framealpha=0.97,
+-               loc="lower right", borderpad=0.8)
++               edgecolor="#B0BEC5", facecolor="white", framealpha=0.97,
++               loc="lower center", bbox_to_anchor=(0.5, -0.15), borderpad=0.8)
++    
++    # Reduce right margin by constraining x-axis
++    ax3.set_xlim(0.9, M + 0.1)
+ 
+@@ -1161,7 +1165,7 @@ def fig3_saturation_spatial(bc_stn_res, stns_str, smap, models,
+     # Use a perceptually distinct, print-safe palette for stations
+-    cmap_stn = cm.get_cmap("tab20", max(n_s, 1))
++    cmap_stn = cm.get_cmap("tab20b", max(n_s, 1))
+     stn_cols = [mcolors.to_hex(cmap_stn(i)) for i in range(n_s)]
+ 
+@@ -1172,6 +1176,7 @@ def fig3_saturation_spatial(bc_stn_res, stns_str, smap, models,
+     fig = plt.figure(figsize=(22, 9))
+     gs  = gridspec.GridSpec(1, 3, figure=fig, hspace=0.08, wspace=0.28,
++                            width_ratios=[0.28, 0.28, 0.44],
+                             top=0.96, bottom=0.11, left=0.06, right=0.97)
+     ax1 = fig.add_subplot(gs[0])
+     ax2 = fig.add_subplot(gs[1])
+@@ -1238,7 +1243,7 @@ def fig3_saturation_spatial(bc_stn_res, stns_str, smap, models,
+         ax_use.set_title(
+             f"{panel}  {ylabel} — Spatial Saturation\n"
+             "     Each colour = one station  |  ★ = station N*\n"
+             f"     Bold black = regional mean ± {CI_LEVEL}% CI  |  Dashed = regional N*",
+-            loc="left", fontsize=12, fontweight="bold", pad=5)
++            loc="left", fontsize=16, fontweight="bold", pad=5)
+         ax_use.tick_params(axis="both", which="major", labelsize=12, width=1.6)
+         ax_use.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+         ax_use.spines["top"].set_visible(False)
+@@ -1260,20 +1265,48 @@ def fig3_saturation_spatial(bc_stn_res, stns_str, smap, models,
+                    ms=12, label="Station saturation N*"),
+             Line2D([0],[0], color="#1A1A1A", lw=2.0, ls="--",
+                    alpha=0.75, label=f"Regional N* ± {CI_LEVEL}% CI"),
+         ]
+-        ax_use.legend(handles=handles_s, fontsize=8.8, frameon=True,
+-                      edgecolor="#B0BEC5", facecolor="white", framealpha=0.97,
+-                      ncol=2, loc=leg_loc, handlelength=1.8,
+-                      borderpad=0.8, handletextpad=0.55,
+-                      labelspacing=0.45)
+ 
+     # ── (c) Saturation heatmap (station × metric) ─────────────────────
+     METS_HM = ["RMSE","KGE","NSE","r"]
+@@ -1287,12 +1320,12 @@ def fig3_saturation_spatial(bc_stn_res, stns_str, smap, models,
+     for mi, met in enumerate(METS_HM):
+         for si, code in enumerate(codes):
+             val = sat_mat[mi, si]
+             if not np.isnan(val):
+                 tc = "white" if val >= M - 0.5 else "#1A1A1A"
+                 ax3.text(si, mi, f"{int(val)}", ha="center", va="center",
+-                         fontsize=14, fontweight="bold", color=tc)
++                         fontsize=13, fontweight="bold", color=tc)
+     ax3.set_xticks(range(n_s)); ax3.set_yticks(range(len(METS_HM)))
+     ax3.set_xticklabels(codes, rotation=0, ha="center", fontsize=11)
+     ax3.set_yticklabels(METS_HM, fontsize=13, fontweight="bold")
+     ax3.set_xlabel("Station", fontsize=13, fontweight="bold", labelpad=6)
+     cb = plt.colorbar(im, ax=ax3, orientation="horizontal",
+@@ -1302,11 +1335,19 @@ def fig3_saturation_spatial(bc_stn_res, stns_str, smap, models,
+                  fontsize=11.5, fontweight="bold")
+     cb.ax.tick_params(width=1.4)
+     ax3.set_title(
+         "(c)  Saturation Point N* — Station × Metric Heatmap\n"
+         "     Number = ensemble size at saturation  |  Darker = later saturation",
+-        loc="left", fontsize=12, fontweight="bold", pad=5)
++        loc="left", fontsize=16, fontweight="bold", pad=5)
++
++    # ── Figure-level legend for panels (a) and (b) ────────────────────
++    fig.legend(handles=handles_s, fontsize=8.5, frameon=True,
++               edgecolor="#B0BEC5", facecolor="white", framealpha=0.97,
++               ncol=6, loc="lower center", 
++               bbox_to_anchor=(0.5, -0.05), handlelength=1.6,
++               borderpad=0.6, handletextpad=0.50,
++               labelspacing=0.40)
+ 
+     # [v4.0] ── Export individual panels BEFORE closing the figure ──────────
+     print("  Splitting Fig 3 into individual panels ...")
+@@ -1395,7 +1436,7 @@ def fig4_integrated_profile(
+             popt, fn = fit_saturation_curve(list(x), list(y_L))
+             if popt is not None:
+                 try:
+                     ax_L.plot(x_fit, fn(x_fit, *popt),
+-                              color=col_L, lw=1.2, ls=":", alpha=0.60, zorder=4)
++                              color=col_L, lw=0.8, ls=":", alpha=0.60, zorder=4)
+                 except Exception: pass
+             # saturation star on left axis
+             sx = sat_n[m_left]
+@@ -1428,7 +1469,7 @@ def fig4_integrated_profile(
+                 popt_r, fn_r = fit_saturation_curve(list(x), list(y_R))
+                 if popt_r is not None:
+                     try:
+                         ax_R.plot(x_fit, fn_r(x_fit, *popt_r),
+-                                  color=col_R, lw=1.2, ls=":", alpha=0.60, zorder=4)
++                                  color=col_R, lw=0.8, ls=":", alpha=0.60, zorder=4)
+                 except Exception: pass
+                 sx_r = sat_n[m_right]
+                 if 1 <= sx_r <= M:
+@@ -1448,7 +1489,7 @@ def fig4_integrated_profile(
+                 lo_k, hi_k = bc_boot_ci[m_k][1], bc_boot_ci[m_k][2]
+                 ax_L.axvspan(lo_k - 0.05, hi_k + 0.05,
+-                             color=METRIC_COLORS[m_k], alpha=0.07, zorder=0)
++                             color=METRIC_COLORS[m_k], alpha=0.05, zorder=0)
+ 
+         # ── Axes decoration ──────────────────────────────────────────
+         ax_L.set_xticks(x)
+@@ -1466,26 +1507,39 @@ def fig4_integrated_profile(
+         ax_L.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+         ax_R.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+         ax_L.spines["top"].set_visible(False)
+         ax_R.spines["top"].set_visible(False)
++        ax_R.spines["right"].set_visible(False)
+ 
+         # Legend — combined both axes
+         handles_L = ax_L.get_legend_handles_labels()
+@@ -1476,16 +1524,31 @@ def fig4_integrated_profile(
+             mpatches.Patch(color=col_L, alpha=0.22, label=f"±1 SD + 95%CI  ({m_left})"),
+             mpatches.Patch(color=col_R, alpha=0.20, label=f"±1 SD + 95%CI  ({m_right})"),
+             Line2D([0],[0], color=C["grey"], lw=1.2, ls=":", label="Exp-decay fit"),
+             Line2D([0],[0], marker="*", color="#1A1A1A", ls="none",
+                    ms=14, label="Saturation point N*"),
+         ]
+-        ax_L.legend(combined_h, [h.get_label() for h in combined_h],
+-                    fontsize=9.8, frameon=True, edgecolor="#B0BEC5",
+-                    facecolor="white", framealpha=0.96,
+-                    ncol=2, loc="upper right",
+-                    handlelength=1.9, borderpad=0.85,
+-                    handletextpad=0.65, labelspacing=0.50)
++        
++        # Store handles for figure-level legend
++        if col_idx == 0:
++            all_combined_h = combined_h
++            all_combined_l = [h.get_label() for h in combined_h]
++    
++    # ── Figure-level legend (both panels share same handles) ─────────────
++    fig.legend(all_combined_h, all_combined_l,
++               fontsize=9.5, frameon=True, edgecolor="#B0BEC5",
++               facecolor="white", framealpha=0.96,
++               ncol=3, loc="lower center",
++               bbox_to_anchor=(0.5, -0.08),
++               handlelength=1.8, borderpad=0.8,
++               handletextpad=0.60, labelspacing=0.48)
+ 
+     # [v4.0] ── Export individual panels BEFORE closing the figure ──────────
+     print("  Splitting Fig 4 into individual panels ...")
+@@ -1553,7 +1616,7 @@ def fig5_spatial_consensus(bc_stn_res, stns_str, models, bc_sat, bc_boot_ci,
+ 
+     fig, axes = plt.subplots(2, 2, figsize=(18, 14))
+-    fig.subplots_adjust(hspace=0.48, wspace=0.32,
++    fig.subplots_adjust(hspace=0.52, wspace=0.32,
+                         left=0.08, right=0.96, top=0.96, bottom=0.08)
+ 
+     ax_list = [axes[0,0], axes[0,1], axes[1,0], axes[1,1]]
+@@ -1610,8 +1673,8 @@ def fig5_spatial_consensus(bc_stn_res, stns_str, models, bc_sat, bc_boot_ci,
+         # ── Cumulative line on right axis ───────────────────────────
+         ax_r.plot(x, pct_cumul, color=col_dark, lw=2.4, ls="-",
+                   marker="D", ms=9,
+                   markeredgecolor="#1A1A1A", markeredgewidth=0.8,
+                   zorder=5, label="Cumulative % (right)")
+-        ax_r.set_ylim(0, 108)
++        ax_r.set_ylim(0, 102)
+         ax_r.set_ylabel("Cumulative % of stations",
+                         fontsize=12, fontweight="bold", color=col_dark,
+                         labelpad=6)
+@@ -1640,7 +1703,7 @@ def fig5_spatial_consensus(bc_stn_res, stns_str, models, bc_sat, bc_boot_ci,
+         ax.set_ylabel("% of Stations", fontsize=13,
+                       fontweight="bold", labelpad=6)
+-        ax.set_ylim(0, 108)
++        ax.set_ylim(0, 102)
+         ax.yaxis.set_major_locator(ticker.MultipleLocator(20))
+         ax.tick_params(axis="both", labelsize=11, width=1.6)
+         ax.spines["top"].set_visible(False)
+@@ -1648,7 +1711,7 @@ def fig5_spatial_consensus(bc_stn_res, stns_str, models, bc_sat, bc_boot_ci,
+         ax.set_title(f"{panel_ttl} — Spatial Consensus Profile\n"
+                      f"     Fraction of {n_s} stations reaching saturation vs N  |  "
+                      f"Regional N*={reg_ns}  [{CI_LEVEL}%CI: {lo_g}–{hi_g}]",
+-                     loc="left", fontsize=11.5, fontweight="bold", pad=5)
++                     loc="left", fontsize=16, fontweight="bold", pad=5)
+ 
+         # Add annotation for early non-saturated periods
+         if pct_cumul[0] < 5:  # If first point has <5% saturation
+@@ -1658,17 +1721,39 @@ def fig5_spatial_consensus(bc_stn_res, stns_str, models, bc_sat, bc_boot_ci,
+                      fontsize=8.5, style="italic", color=C["grey"], 
+                      alpha=0.6, ha="center")
+ 
+-        # Combined legend (both axes)
+-        h1, l1 = ax.get_legend_handles_labels()
+-        h2, l2 = ax_r.get_legend_handles_labels()
+-        ax.legend(h1 + h2, l1 + l2,
++    # ── Collect unique legend handles from first panel only ──────────────
++    h1, l1 = ax_list[0].get_legend_handles_labels()
++    h2_list = [ax_list[i].twinx().get_legend_handles_labels() for i in range(len(ax_list))]
++    h2, l2 = h2_list[0]
++    
++    # Remove duplicates by keeping only first occurrence
++    unique_handles = []
++    unique_labels = []
++    seen = set()
++    for h, l in zip(h1 + h2, l1 + l2):
++        if l not in seen and l:
++            unique_handles.append(h)
++            unique_labels.append(l)
++            seen.add(l)
++    
++    # Clear individual panel legends
++    for ax_panel in ax_list:
++        if ax_panel.get_legend():
++            ax_panel.get_legend().remove()
++    
++    # ── Create figure-level legend ─────────────────────────────────────
++    fig.legend(unique_handles, unique_labels,
+                   fontsize=9.8, frameon=True, edgecolor="#B0BEC5",
+                   facecolor="white", framealpha=0.95,
+-                  ncol=1, loc="upper left",
+-                  handlelength=1.8, borderpad=0.80,
+-                  handletextpad=0.60, labelspacing=0.45)
++                  ncol=3, loc="lower center",
++                  bbox_to_anchor=(0.5, -0.03),
++                  handlelength=1.6, borderpad=0.7,
++                  handletextpad=0.55, labelspacing=0.40)
+ 
+     # ── Export ──────────────────────────────────────────────────────────
+     print("  Splitting Fig 5 into individual panels ...")
+     axes_for_split = [axes[0,0], axes[0,1], axes[1,0], axes[1,1]]
