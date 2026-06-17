@@ -1,0 +1,10 @@
+# Comparative_4MMK.py — Python dependencies (pinned)
+# Python >= 3.11 required (type hint syntax: list[...], tuple[...])
+# Generated: 2026-06-17
+
+numpy==2.4.6
+pandas==3.0.3
+scipy==1.17.1
+matplotlib==3.11.0
+statsmodels==0.14.6
+openpyxl==3.1.5

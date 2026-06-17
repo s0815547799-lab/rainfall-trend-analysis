@@ -1,0 +1,37 @@
+2026-06-17 17:47:45 | INFO     | Analysis session started (v2.0 — corrected).
+Validation Suite — 2026-06-17 17:47:45
+====================================================================
+[PASS] T01: Syntax: no parse errors
+[PASS] T02: MIN_N absent from namespace
+[PASS] T03: H&R98 Eq.(3) match: VIF=1.749036
+[PASS] T04: Ranked ACF confirmed (ranked != raw VIF)
+[PASS] T05: White noise VIF=1.0000≈1.0
+[PASS] T06: AR(1) phi=0.7 VIF=1.1557>1.0 (positive correction)
+[PASS] T07: Neg-AC VIF clamped at 1.0000>=1.0
+[PASS] T08: Raw vif_sum=-0.4066<0 (clamp mathematically essential)
+[PASS] T9: PW n=4→NaN
+[PASS] T10: PW n=5 valid
+[PASS] T15: PW n=9 valid (old MIN_N=10 gate removed)
+[PASS] T11: TFPW n=4→NaN
+[PASS] T12: TFPW n=5 valid
+[PASS] T16: TFPW n=9 valid (old MIN_N=10 gate removed)
+[PASS] T13: PW-MK slope=sens_slope(original)
+[PASS] T14: TFPW-MK slope=original Sen's slope
+[PASS] T15: BH: p=0.001 rejected, p=0.90 retained
+[PASS] T16: BH returns bool array
+[PASS] T17: AR1Generator produces n=34 series
+[PASS] T18_0.7: phi=0.7 VIF=2.1239>=1.0
+[PASS] T18_-0.5: phi=-0.5 VIF=1.0000>=1.0
+[PASS] T19: Type I phi=0 MK=0.0457∈[0.025,0.075]
+[PASS] T20: Type I phi=0 MMK=0.0380∈[0.025,0.075]
+[PASS] T21: Type I phi=0 PW=0.0430∈[0.025,0.075]
+[PASS] T22: Type I phi=0 TFPW=0.0487∈[0.025,0.075]
+[PASS] T23: H&R98 reduces Type I: MMK=0.0980<MK=0.2245
+2026-06-17 17:48:03 | INFO     | FDR analysis (BH-corrected) …
+2026-06-17 17:48:03 | INFO     | BH-FDR (phi=0.00): MK=0.0067 MMK=0.0067 PW=0.0067 TFPW=0.0000
+2026-06-17 17:48:03 | INFO     | BH-FDR (phi=0.30): MK=0.0067 MMK=0.0067 PW=0.0133 TFPW=0.0267
+[PASS] T24: FDR values in [0,1]
+
+====================================================================
+  TOTAL: 27  PASSED: 27  FAILED: 0
+====================================================================
