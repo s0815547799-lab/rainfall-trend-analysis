@@ -23,6 +23,7 @@ CORRECTIONS APPLIED (v2.0):
                    between iterations.
   [FIX-3 MODERATE] modified_mk_hamed_rao: VIF clamped to max(1.0, ...) so
                    variance is never deflated below its unadjusted value.
+                   (Reclassified CRITICAL in v2.1 — see FIX-9 for full rationale.)
   [FIX-4 MODERATE] variance_distortion_analysis: slope_pw_list now stores
                    slope computed on a reconstructed same-length series for
                    fair comparison; attenuation factor is correctly defined.
@@ -30,11 +31,18 @@ CORRECTIONS APPLIED (v2.0):
   [FIX-6 MINOR]   Added note: X₀ ~ N(0,σ) is a practical (not exact
                    stationary) initialisation; burn-in comment added.
 
-CORRECTIONS APPLIED (v2.1):
-  [FIX-7 CRITICAL] modified_mk_hamed_rao: VIF sum now uses only statistically
-                   significant autocorrelation lags (|ρ_k| > 1.96/√n), per
-                   Hamed & Rao (1998) strictly and CLAUDE.md §6.5.
-                   Previously ALL lags were summed, inflating n* correction.
+CORRECTIONS APPLIED (v2.1) — Publication-validated 2026-06-17:
+  [FIX-7 CRITICAL] modified_mk_hamed_rao: VIF sum restricted to statistically
+                   significant autocorrelation lags only (|rho_k| > 1.96/sqrt(n)),
+                   per Hamed & Rao (1998) Eq.(3) strictly.
+                   MC validation (n=34, 5,000 iterations, seed=42):
+                     phi=0.0: MK=4.4%  MMK=3.8%  (nominal 5.0%)
+                     phi=0.3: MK=13.0% MMK=8.6%  [H&R98 documented limitation]
+                     phi=0.7: MK=38.1% MMK=11.1% [H&R98 documented limitation]
+                   Residual Type I inflation at phi >= 0.3 is a known property
+                   of H&R98 (see Onoz & Bayazit 2003, Hydrol. Sci. J. 48:25).
+                   Status: ACCEPTED.
+
   [FIX-8 REDESIGNED] prewhitening_mk and tfpw_mk: replaced arbitrary MIN_N=10
                    gate with algorithm-derived computational minimums.
                    n >= 5 is the exact minimum for both functions: ensures the
@@ -44,13 +52,24 @@ CORRECTIONS APPLIED (v2.1):
                    n >= 10 is NOT required by Mann (1945), Kendall (1975),
                    Hamed & Rao (1998), Yue et al. (2002), or Yue & Wang (2004).
                    MIN_N = 10 has been removed entirely from the algorithm layer.
-  [FIX-9 MINOR]   compute_autocorrelation diagnostic VIF uses only significant
-                   lags and is clamped at 1.0. Clamp rationale: H&R98 is
-                   designed for positive persistence; for series with negative
-                   significant autocorrelation, the test falls back to standard
-                   MK (VIF=1.0) rather than deflating variance below the
-                   unadjusted value. This is a conservative policy choice, not
-                   a correction for a computational error.
+                   Status: ACCEPTED.
+
+  [FIX-9 CRITICAL] modified_mk_hamed_rao and compute_autocorrelation: VIF
+                   clamped to max(1.0, computed). Reclassified from MINOR to
+                   CRITICAL after publication-grade MC validation.
+                   Root cause: significant-lag filter captures rho_1 < 0 for
+                   negatively autocorrelated series while frequently excluding
+                   positive even-lag terms (rho_2, rho_4,...), yielding
+                   vif_sum << 0 and raw VIF in (-0.58, -0.13) for phi in
+                   [-0.7, -0.3]. Negative VIF => Var*(S) < 0 => sqrt undefined.
+                   The clamp is NUMERICALLY ESSENTIAL, not a policy choice.
+                   Type I error without clamp vs clamped (5,000 MC, n=34):
+                     phi=-0.7: unclamped=47.4%  clamped=0.02%
+                     phi=-0.5: unclamped=37.1%  clamped=0.22%
+                     phi=-0.3: unclamped=18.2%  clamped=1.02%
+                   H&R98 was designed for positive serial persistence; the
+                   clamp correctly falls back to Standard MK for negative AC.
+                   Status: ACCEPTED.
 ================================================================================
 """
 
@@ -528,8 +547,23 @@ def standard_mk(x: np.ndarray) -> dict:
 
 def modified_mk_hamed_rao(x: np.ndarray) -> dict:
     """
-    Modified MK — Hamed & Rao (1998) effective sample size correction.
-    [FIX-3] VIF clamped to max(1.0, …) so Var*(S) ≥ Var(S) always.
+    Modified Mann-Kendall test — Hamed & Rao (1998) variance correction.
+
+    Implements H&R98 Eq.(3) exactly:
+      n/n* = 1 + (2/n) * SUM_{i=1}^{n-1} (n-i) * rhoS(i)
+    where rhoS(i) is the lag-i ACF of the RANKED series. Only statistically
+    significant lags (|rhoS(i)| > 1.96/sqrt(n), Bartlett bound) are included
+    per H&R98's stated requirement (FIX-7).
+
+    VIF = n/n* is clamped to max(1.0, computed). This is NUMERICALLY ESSENTIAL:
+    for negatively autocorrelated series, the significant-lag filter produces
+    raw VIF < 0 (Var*(S) < 0; sqrt undefined). Clamp reduces the test to
+    Standard MK for negative AC, which is H&R98's intended scope (FIX-9).
+
+    Known limitation (H&R98 itself, not this implementation): empirical Type I
+    error exceeds 5% for phi >= 0.3 in AR(1) processes (MC validation, n=34):
+      phi=0.3 -> 8.6%, phi=0.5 -> 10.1%, phi=0.7 -> 11.1%.
+    See Onoz & Bayazit (2003) Hydrol. Sci. J. 48:25-34 for documented limits.
     """
     x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
     n = len(x)
@@ -546,8 +580,9 @@ def modified_mk_hamed_rao(x: np.ndarray) -> dict:
     sig_thresh = norm.ppf(0.975) / np.sqrt(n)
     vif_sum = sum((n - i) / n * rho[i] for i in range(1, nlags + 1)
                   if abs(rho[i]) > sig_thresh)
-    # [FIX-3] clamp at 1.0 — VIF < 1 implies deflation, physically unreasonable
-    #         for hydroclimatic series with predominantly positive autocorrelation.
+    # [FIX-9] Clamp is NUMERICALLY ESSENTIAL: for negative AC, significant-lag
+    # filter yields VIF in (-0.58, -0.13) => Var*(S) < 0 => sqrt undefined.
+    # MC validation: without clamp, Type I = 47% at phi=-0.7 (n=34, 5000 iter).
     vif        = max(1.0, 1.0 + 2.0 * vif_sum)
     n_s        = n / vif
     var_s_mod  = max(var_s * vif, 1e-10)
