@@ -35,11 +35,22 @@ CORRECTIONS APPLIED (v2.1):
                    significant autocorrelation lags (|ρ_k| > 1.96/√n), per
                    Hamed & Rao (1998) strictly and CLAUDE.md §6.5.
                    Previously ALL lags were summed, inflating n* correction.
-  [FIX-8 MODERATE] MIN_N = 10 constant added; prewhitening_mk and tfpw_mk
-                   now re-check len(whitened_series) >= MIN_N after
-                   constructing the residual series, per CLAUDE.md §12.1.
-  [FIX-9 MINOR]   compute_autocorrelation diagnostic VIF now also uses only
-                   significant lags for consistency with H&R98.
+  [FIX-8 REDESIGNED] prewhitening_mk and tfpw_mk: replaced arbitrary MIN_N=10
+                   gate with algorithm-derived computational minimums.
+                   n >= 5 is the exact minimum for both functions: ensures the
+                   whitened/restored series (length n-1) has >= 4 observations,
+                   the minimum for standard_mk (requires at least C(4,2)=6
+                   pairwise comparisons for a non-trivial S statistic).
+                   n >= 10 is NOT required by Mann (1945), Kendall (1975),
+                   Hamed & Rao (1998), Yue et al. (2002), or Yue & Wang (2004).
+                   MIN_N = 10 has been removed entirely from the algorithm layer.
+  [FIX-9 MINOR]   compute_autocorrelation diagnostic VIF uses only significant
+                   lags and is clamped at 1.0. Clamp rationale: H&R98 is
+                   designed for positive persistence; for series with negative
+                   significant autocorrelation, the test falls back to standard
+                   MK (VIF=1.0) rather than deflating variance below the
+                   unadjusted value. This is a conservative policy choice, not
+                   a correction for a computational error.
 ================================================================================
 """
 
@@ -98,7 +109,6 @@ warnings.filterwarnings("ignore", category=UserWarning)
 RANDOM_SEED       = 42
 N_MONTE_CARLO     = 10_000
 ALPHA             = 0.05
-MIN_N             = 10        # minimum series length for MK test (post-whitening)
 COMPLETENESS_THR  = 0.90
 WET_MONTHS        = [5, 6, 7, 8, 9, 10]          # May–October
 DRY_MONTHS        = [11, 12, 1, 2, 3, 4]          # November–April
@@ -555,18 +565,20 @@ def prewhitening_mk(x: np.ndarray) -> dict:
     Pre-Whitening MK (Von Storch 1995; Kulkarni & Von Storch 1995).
     Sen's slope reported from original series for comparability.
     Note: slope_pw (on whitened series) stored separately for diagnostics.
+
+    Computational minimum n >= 5 (algorithm-derived, not arbitrary):
+    - np.corrcoef(x[:-1], x[1:]) requires n >= 3 (at least 2 lag-pairs)
+    - standard_mk(x_pw) requires len(x_pw) = n-1 >= 4 for a non-trivial S
+    Combined: n >= 5 is the exact lower bound.
     """
     x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
     n = len(x)
-    if n < MIN_N + 1:
+    # n-1 >= 4 required by standard_mk → n >= 5
+    if n < 5:
         return {k: np.nan for k in
                 ["S","Var_S","Z","tau","p","slope","phi","method"]}
     phi      = np.corrcoef(x[:-1], x[1:])[0, 1]
     x_pw     = x[1:] - phi * x[:-1]
-    # [FIX-8] Re-check minimum length after whitening reduces series by 1
-    if len(x_pw) < MIN_N:
-        return {k: np.nan for k in
-                ["S","Var_S","Z","tau","p","slope","phi","method"]}
     mk_res   = standard_mk(x_pw)
     mk_res["phi"]      = phi
     mk_res["method"]   = "PW-MK"
@@ -579,10 +591,17 @@ def tfpw_mk(x: np.ndarray) -> dict:
     """
     Trend-Free Pre-Whitening MK (Yue & Wang 2002, WRR).
     Steps 1–6 exactly as in the original paper.
+
+    Computational minimum n >= 5 (algorithm-derived, not arbitrary):
+    - sens_slope(x) requires n >= 2
+    - np.corrcoef(y[:-1], y[1:]) on detrended y requires n >= 3
+    - standard_mk(z) requires len(z) = n-1 >= 4
+    Combined: n >= 5 is the exact lower bound.
     """
     x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
     n = len(x)
-    if n < MIN_N + 1:
+    # n-1 >= 4 required by standard_mk → n >= 5
+    if n < 5:
         return {k: np.nan for k in
                 ["S","Var_S","Z","tau","p","slope","phi","method"]}
     t      = np.arange(1, n + 1, dtype=float)
@@ -593,10 +612,6 @@ def tfpw_mk(x: np.ndarray) -> dict:
     y_pw   = y[1:] - phi * y[:-1]               # Step 4
     t_pw   = t[1:]
     z      = y_pw + beta * t_pw                  # Step 5: restore trend
-    # [FIX-8] Re-check minimum length after whitening reduces series by 1
-    if len(z) < MIN_N:
-        return {k: np.nan for k in
-                ["S","Var_S","Z","tau","p","slope","phi","method"]}
     mk_res = standard_mk(z)         # Step 6
     mk_res["phi"]    = phi
     mk_res["slope"]  = beta         # original Sen's slope
