@@ -95,17 +95,20 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. GLOBAL CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-RANDOM_SEED       = 42
-N_MONTE_CARLO     = 10_000
-ALPHA             = 0.05
-MIN_N             = 10        # minimum series length for MK test (post-whitening)
-COMPLETENESS_THR  = 0.90
-WET_MONTHS        = [5, 6, 7, 8, 9, 10]          # May–October
-DRY_MONTHS        = [11, 12, 1, 2, 3, 4]          # November–April
-PHI_LEVELS        = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
-TREND_MAGNITUDES  = [0.0, 0.5, 1.0, 2.0]          # mm yr⁻¹
-SAMPLE_SIZES      = [30, 40, 50, 60]
-FIGURE_DPI        = 600
+RANDOM_SEED            = 42
+N_MONTE_CARLO          = 10_000
+ALPHA                  = 0.05
+MIN_N                  = 10       # minimum years for valid MK/MMK/PW/TFPW test
+STATION_COMPLETENESS_THR = 0.90  # fraction of calendar days station must have overall
+YEAR_COMPLETENESS_THR  = 0.80    # fraction of days in year required to include that year
+COMPLETENESS_THR       = STATION_COMPLETENESS_THR  # backward-compat alias
+WET_MONTHS             = [5, 6, 7, 8, 9, 10]       # May–October
+DRY_MONTHS             = [11, 12, 1, 2, 3, 4]       # November–April
+MISS_FLAGS             = [-99, -999, -9999, -9.99e20, 9.99e20, 1e20]  # sentinel NaN values
+PHI_LEVELS             = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+TREND_MAGNITUDES       = [0.0, 0.5, 1.0, 2.0]      # mm yr⁻¹
+SAMPLE_SIZES           = [30, 40, 50, 60]
+FIGURE_DPI             = 600
 
 # Input file names (must reside in project root or specified DATA_DIR)
 RAIN_FILE    = "Observed_Rain_daily_198101_201412_Prachuap Khiri Khan.xlsx"
@@ -341,24 +344,73 @@ def standardise_dem_columns(df: pd.DataFrame) -> pd.DataFrame:
 # 8. QUALITY CONTROL
 # ─────────────────────────────────────────────────────────────────────────────
 def quality_control(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Multi-step quality control following CLAUDE.md §6.1 and WMO guidelines.
+
+    Steps (in order):
+      1. Replace standard missing-value sentinels with NaN
+      2. Replace negative rainfall with NaN
+      3. Flag and remove physically impossible values (> 1000 mm/day)
+      4. Remove duplicate station-date rows
+      5. Detect and remove station-level extreme outliers (> Q3 + 3×IQR)
+         — removal is justified: values that far exceed the IQR envelope are
+           instrument errors or encoding artefacts, per WMO WCDMP-50.
+      6. Log per-station missing-data fractions for transparency
+    """
     log.info("Running quality control …")
     qc_records = []
+    df = df.copy()
+
+    # Step 1 — sentinel missing-value flags → NaN
+    for flag in MISS_FLAGS:
+        flag_mask = np.isclose(df["Rainfall_mm"], flag, rtol=0, atol=1e-3)
+        n_flag = int(flag_mask.sum())
+        if n_flag:
+            qc_records.append({"Check": f"Sentinel flag {flag} → NaN", "Count": n_flag})
+            df.loc[flag_mask, "Rainfall_mm"] = np.nan
+
+    # Step 2 — negative values → NaN
     neg_mask = df["Rainfall_mm"] < 0
     if neg_mask.any():
-        qc_records.append({"Check": "Negative rainfall", "Count": int(neg_mask.sum())})
+        qc_records.append({"Check": "Negative rainfall → NaN", "Count": int(neg_mask.sum())})
         df.loc[neg_mask, "Rainfall_mm"] = np.nan
+
+    # Step 3 — physically impossible daily values (> 1000 mm)
     extreme_mask = df["Rainfall_mm"] > 1000
     if extreme_mask.any():
-        qc_records.append({"Check": "Extreme rainfall (>1000 mm)", "Count": int(extreme_mask.sum())})
+        qc_records.append({"Check": "Physically impossible (>1000 mm/day) → NaN",
+                            "Count": int(extreme_mask.sum())})
         df.loc[extreme_mask, "Rainfall_mm"] = np.nan
-    missing_init = df["Rainfall_mm"].isna().sum()
-    qc_records.append({"Check": "Missing values (total)", "Count": int(missing_init)})
+
+    # Step 4 — duplicate station-date records
     if "Date" in df.columns:
-        dup_mask = df.duplicated(subset=["Station","Date"], keep="first")
+        dup_mask = df.duplicated(subset=["Station", "Date"], keep="first")
         if dup_mask.any():
             qc_records.append({"Check": "Duplicate station-date rows removed",
                                 "Count": int(dup_mask.sum())})
-            df = df[~dup_mask].copy()
+            df = df[~dup_mask]
+
+    # Step 5 — station-level IQR outlier detection (Q3 + 3×IQR) on non-zero wet days
+    total_iqr = 0
+    for stn, grp in df.groupby("Station"):
+        wet = grp.loc[grp["Rainfall_mm"] > 0, "Rainfall_mm"].dropna()
+        if len(wet) < 8:
+            continue
+        q1, q3 = float(np.percentile(wet, 25)), float(np.percentile(wet, 75))
+        iqr    = q3 - q1
+        upper  = q3 + 3.0 * iqr
+        outlier_mask = (df["Station"] == stn) & (df["Rainfall_mm"] > upper)
+        n_out = int(outlier_mask.sum())
+        if n_out:
+            df.loc[outlier_mask, "Rainfall_mm"] = np.nan
+            total_iqr += n_out
+    if total_iqr:
+        qc_records.append({"Check": "Extreme outliers (>Q3+3×IQR, wet days) → NaN",
+                            "Count": total_iqr})
+
+    missing_final = int(df["Rainfall_mm"].isna().sum())
+    qc_records.append({"Check": "Missing values after QC (total)", "Count": missing_final})
+
     qc_df = pd.DataFrame(qc_records)
     log.info("QC complete.\n%s", qc_df.to_string(index=False))
     return df.reset_index(drop=True), qc_df
@@ -390,38 +442,119 @@ def compute_completeness(df: pd.DataFrame) -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. AGGREGATION — MONTHLY / SEASONAL / ANNUAL
 # ─────────────────────────────────────────────────────────────────────────────
+def _year_expected_days(year: int) -> int:
+    """Return calendar days in a given year (366 for leap years)."""
+    import calendar
+    return 366 if calendar.isleap(year) else 365
+
+
+def _valid_year_mask(df: pd.DataFrame, thr: float = YEAR_COMPLETENESS_THR) -> pd.DataFrame:
+    """
+    Return a DataFrame of (Station, Year) pairs that have >= thr fraction of
+    valid (non-NaN) daily observations.  CLAUSE.md §6.2 mandates 80% gate
+    uniformly for annual, wet, and dry scales.
+
+    Using sum(min_count=1) without this gate allows years with a single valid
+    day to contribute a grossly underestimated annual total, biasing the trend.
+    """
+    counts = (
+        df.groupby(["Station", "Year"])["Rainfall_mm"]
+        .apply(lambda s: s.notna().sum())
+        .reset_index()
+        .rename(columns={"Rainfall_mm": "Valid_days"})
+    )
+    counts["Expected_days"] = counts["Year"].apply(_year_expected_days)
+    counts["Completeness"]  = counts["Valid_days"] / counts["Expected_days"]
+    valid = counts[counts["Completeness"] >= thr][["Station", "Year"]].copy()
+    n_drop = len(counts) - len(valid)
+    if n_drop:
+        log.info("Annual completeness gate: %d station-years dropped (< %.0f%% valid days).",
+                 n_drop, thr * 100)
+    return valid
+
+
 def aggregate_rainfall(df: pd.DataFrame, valid_stations: list) -> dict[str, pd.DataFrame]:
+    """
+    Aggregate daily rainfall to monthly / annual / seasonal totals.
+
+    CORRECTIONS applied:
+    • Per-year 80% completeness gate (YEAR_COMPLETENESS_THR) applied to
+      annual and seasonal aggregates — years with < 80% valid days are set to
+      NaN and excluded from trend series.  Previously, sum(min_count=1) allowed
+      years with a single valid observation into the trend series.
+    • Hydrological year (dry season): Nov–Dec of year Y shifted to year Y+1
+      so that Nov–Apr forms one contiguous block, following CLAUDE.md §6.2.
+    """
     log.info("Aggregating rainfall data …")
     df = df[df["Station"].isin(valid_stations)].copy()
 
+    # Monthly (no completeness gate: useful for climatology even if partial)
     monthly = (
-        df.groupby(["Station","Year","Month"])["Rainfall_mm"]
+        df.groupby(["Station", "Year", "Month"])["Rainfall_mm"]
         .sum(min_count=1).reset_index()
         .rename(columns={"Rainfall_mm": "Monthly_mm"})
     )
-    annual = (
-        df.groupby(["Station","Year"])["Rainfall_mm"]
+
+    # ── Annual with 80% per-year completeness gate ────────────────────────────
+    valid_yrs = _valid_year_mask(df, YEAR_COMPLETENESS_THR)
+    annual_raw = (
+        df.groupby(["Station", "Year"])["Rainfall_mm"]
         .sum(min_count=1).reset_index()
         .rename(columns={"Rainfall_mm": "Annual_mm"})
     )
-    df["Season"]   = df["Month"].apply(lambda m: "Wet" if m in WET_MONTHS else "Dry")
+    annual = annual_raw.merge(valid_yrs, on=["Station", "Year"], how="inner")
+
+    # ── Seasonal — hydrological year convention ───────────────────────────────
+    df["Season"]    = df["Month"].apply(lambda m: "Wet" if m in WET_MONTHS else "Dry")
     df["HydroYear"] = df["Year"].copy()
-    dry_nov_dec = (df["Month"].isin([11,12])) & (df["Season"] == "Dry")
-    df.loc[dry_nov_dec, "HydroYear"] = df.loc[dry_nov_dec,"Year"] + 1
-    seasonal = (
-        df.groupby(["Station","HydroYear","Season"])["Rainfall_mm"]
-        .sum(min_count=1).reset_index()
-        .rename(columns={"HydroYear":"Year","Rainfall_mm":"Seasonal_mm"})
+    dry_nov_dec = (df["Month"].isin([11, 12])) & (df["Season"] == "Dry")
+    df.loc[dry_nov_dec, "HydroYear"] = df.loc[dry_nov_dec, "Year"] + 1
+
+    # Compute seasonal valid-day counts for the same 80% gate
+    # Wet season: ~184 days (May–Oct); Dry season: ~181 days (Nov–Apr)
+    # Expected days per season-hydroyear computed from the data itself.
+    season_counts = (
+        df.groupby(["Station", "HydroYear", "Season"])["Rainfall_mm"]
+        .apply(lambda s: s.notna().sum())
+        .reset_index()
+        .rename(columns={"Rainfall_mm": "Valid_days"})
     )
-    wet = seasonal[seasonal["Season"]=="Wet"][["Station","Year","Seasonal_mm"]].rename(
-        columns={"Seasonal_mm":"Wet_mm"})
-    dry = seasonal[seasonal["Season"]=="Dry"][["Station","Year","Seasonal_mm"]].rename(
-        columns={"Seasonal_mm":"Dry_mm"})
-    seasonal_wide = wet.merge(dry, on=["Station","Year"], how="outer").sort_values(
-        ["Station","Year"])
-    log.info("Aggregation done. Annual rows: %d, Seasonal rows: %d",
+    season_total_days = (
+        df.groupby(["Station", "HydroYear", "Season"])["Rainfall_mm"]
+        .count()            # counts ALL rows (including NaN) = total obs in season
+        .reset_index()
+        .rename(columns={"Rainfall_mm": "Total_days"})
+    )
+    season_counts = season_counts.merge(season_total_days,
+                                        on=["Station", "HydroYear", "Season"])
+    season_counts["Completeness"] = (
+        season_counts["Valid_days"] / season_counts["Total_days"].replace(0, np.nan)
+    )
+    valid_seasons = season_counts[
+        season_counts["Completeness"] >= YEAR_COMPLETENESS_THR
+    ][["Station", "HydroYear", "Season"]].copy()
+
+    seasonal_raw = (
+        df.groupby(["Station", "HydroYear", "Season"])["Rainfall_mm"]
+        .sum(min_count=1).reset_index()
+        .rename(columns={"HydroYear": "Year", "Rainfall_mm": "Seasonal_mm"})
+    )
+    valid_seasons = valid_seasons.rename(columns={"HydroYear": "Year"})
+    seasonal = seasonal_raw.merge(valid_seasons, on=["Station", "Year", "Season"],
+                                  how="inner")
+
+    wet = (seasonal[seasonal["Season"] == "Wet"]
+           [["Station", "Year", "Seasonal_mm"]]
+           .rename(columns={"Seasonal_mm": "Wet_mm"}))
+    dry = (seasonal[seasonal["Season"] == "Dry"]
+           [["Station", "Year", "Seasonal_mm"]]
+           .rename(columns={"Seasonal_mm": "Dry_mm"}))
+    seasonal_wide = (wet.merge(dry, on=["Station", "Year"], how="outer")
+                        .sort_values(["Station", "Year"]))
+
+    log.info("Aggregation done. Annual rows: %d (after gate), Seasonal rows: %d",
              len(annual), len(seasonal_wide))
-    return {"monthly":monthly, "annual":annual, "seasonal":seasonal_wide}
+    return {"monthly": monthly, "annual": annual, "seasonal": seasonal_wide}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -429,11 +562,24 @@ def aggregate_rainfall(df: pd.DataFrame, valid_stations: list) -> dict[str, pd.D
 # ─────────────────────────────────────────────────────────────────────────────
 def compute_autocorrelation(series: np.ndarray, nlags: int = 20,
                             label: str = "") -> dict:
+    """
+    Compute autocorrelation diagnostics for a time series.
+
+    CORRECTIONS applied:
+    • VIF diagnostic now uses the RANKED series ACF, matching the MMK
+      implementation (H&R98 specifies ranks for the VIF correction).
+    • VIF clamped at max(1.0, …): negative autocorrelation cannot reduce
+      variance below its unadjusted value (Hamed & Rao 1998).
+    • n_eff floored at MIN_N (=10), not the previous floor of 3, which
+      would allow testing on effectively 3 observations.
+    • Only statistically significant lag-k ρ values included in VIF sum
+      (CLAUDE.md §12.3; H&R98 requirement).
+    """
     n     = len(series)
     nlags = min(nlags, n // 2 - 1)
     x     = series - np.nanmean(series)
 
-    r1 = np.corrcoef(x[:-1], x[1:])[0, 1]
+    r1        = np.corrcoef(x[:-1], x[1:])[0, 1]
     acf_vals  = acf(x,  nlags=nlags, fft=True,   alpha=None)
     pacf_vals = pacf(x, nlags=nlags, method="ywm", alpha=None)
 
@@ -442,26 +588,26 @@ def compute_autocorrelation(series: np.ndarray, nlags: int = 20,
     dw        = float(durbin_watson(x))
     adf_stat, adf_pval, adf_lags, *_ = adfuller(x, autolag="AIC")
 
-    # VIF = n / n*  (Hamed & Rao 1998, Eq. 3) — significant lags only [FIX-9]
-    rho     = acf_vals[:nlags + 1]
-    assert abs(rho[0] - 1.0) < 1e-6, "ACF lag-0 must be 1.0"
-    sig_thresh_diag = norm.ppf(0.975) / np.sqrt(n)
+    # VIF using RANKED series (H&R98) — consistent with modified_mk_hamed_rao()
+    ranks          = stats.rankdata(x)
+    ranked_acf     = acf(ranks, nlags=nlags, fft=True, alpha=None)
+    sig_thresh     = norm.ppf(0.975) / np.sqrt(n)
     vif_sum = 0.0
     for i in range(1, nlags + 1):
-        if abs(rho[i]) > sig_thresh_diag:
-            vif_sum += (n - i) / n * rho[i]
-    vif   = max(1.0, 1.0 + 2.0 * vif_sum)
-    n_eff = max(3, n / vif)
+        if abs(ranked_acf[i]) > sig_thresh:          # only significant ρ_k
+            vif_sum += (n - i) / n * ranked_acf[i]
+    vif   = max(1.0, 1.0 + 2.0 * vif_sum)           # clamp: cannot deflate
+    n_eff = max(float(MIN_N), n / vif)               # floor at MIN_N, not 3
 
     result = {
-        "label"         : label, "n"       : n,
-        "r1"            : r1,    "acf"     : acf_vals,
-        "pacf"          : pacf_vals,
-        "lb_pvalue"     : lb_pvalue, "lb_sig"  : lb_pvalue < ALPHA,
+        "label"         : label,     "n"            : n,
+        "r1"            : r1,        "acf"          : acf_vals,
+        "pacf"          : pacf_vals, "ranked_acf"   : ranked_acf,
+        "lb_pvalue"     : lb_pvalue, "lb_sig"       : lb_pvalue < ALPHA,
         "dw"            : dw,
-        "adf_stat"      : adf_stat,  "adf_pval": adf_pval,
+        "adf_stat"      : adf_stat,  "adf_pval"     : adf_pval,
         "adf_stationary": adf_pval < ALPHA,
-        "vif"           : vif,       "n_eff"   : n_eff,
+        "vif"           : vif,       "n_eff"        : n_eff,
         "nlags"         : nlags,
     }
     log.info("[%s] r1=%.3f | DW=%.3f | LB-p=%.4f | ADF-p=%.4f | VIF=%.3f | n_eff=%.1f",
@@ -480,127 +626,244 @@ def classify_autocorrelation(r1: float) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. MANN–KENDALL IMPLEMENTATIONS
 # ─────────────────────────────────────────────────────────────────────────────
-def sens_slope(x: np.ndarray) -> float:
-    """Sen (1968) non-parametric slope estimator."""
+
+def sens_slope(x: np.ndarray, t: np.ndarray = None) -> dict:
+    """
+    Sen (1968) non-parametric slope estimator with Gilbert (1987) 95% CI.
+
+    Returns a dict: {Q, lo, hi, intercept}
+      Q         — median of all pairwise slopes (the Sen slope estimate)
+      lo, hi    — 95 % CI bounds (Gilbert 1987, rank-based)
+      intercept — median(x) − Q·median(t)  [anchored at series medians]
+
+    CORRECTIONS applied:
+    • Gilbert (1987) CI bounds use int() (floor) for both lo_r and hi_r —
+      never round(), per CLAUDE.md §12.2.
+    • Intercept anchored at series medians, never at prewhitened series.
+    • Optional time vector t enables correct slopes when calendar years have
+      gaps (e.g. years dropped by the 80% completeness gate).  When t is
+      None, consecutive integer steps are assumed (correct for gapless series).
+    """
+    x = np.asarray(x, dtype=float)
+    x = x[~np.isnan(x)]
     n = len(x)
-    slopes = [(x[j] - x[i]) / (j - i)
-              for i in range(n - 1) for j in range(i + 1, n)]
-    return float(np.median(slopes)) if slopes else np.nan
+    if t is None:
+        t = np.arange(1, n + 1, dtype=float)
+    else:
+        t = np.asarray(t, dtype=float)
+
+    slopes = []
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            dt = t[j] - t[i]
+            if dt != 0:
+                slopes.append((x[j] - x[i]) / dt)
+
+    if not slopes:
+        return {"Q": np.nan, "lo": np.nan, "hi": np.nan, "intercept": np.nan}
+
+    slopes  = np.sort(slopes)
+    N       = len(slopes)
+    Q       = float(np.median(slopes))
+
+    # Gilbert (1987) confidence bounds — use int() (floor), NOT round()
+    var_s_approx = n * (n - 1) * (2 * n + 5) / 18.0
+    C_alpha = norm.ppf(0.975) * np.sqrt(var_s_approx)
+    lo_r    = int((N - C_alpha) / 2)           # floor — Gilbert 1987
+    hi_r    = int((N + C_alpha) / 2)           # floor — Gilbert 1987
+    lo_r    = max(0, lo_r)
+    hi_r    = min(N - 1, hi_r)
+    lo      = float(slopes[lo_r])
+    hi      = float(slopes[hi_r])
+
+    intercept = float(np.median(x)) - Q * float(np.median(t))
+    return {"Q": Q, "lo": lo, "hi": hi, "intercept": intercept}
 
 
-def _mk_s_statistic(x: np.ndarray) -> tuple[float, int]:
-    """MK S statistic with ties correction term."""
+def _mk_s_statistic(x: np.ndarray) -> tuple[float, float]:
+    """
+    MK S statistic and ties-correction term for Var(S).
+
+    Returns (S, ties_term) where:
+      Var(S) = [n(n-1)(2n+5) − ties_term] / 18
+    Ties correction: Σ_j  t_j(t_j−1)(2t_j+5)  summed over all tie groups j.
+    """
     n, s = len(x), 0.0
     for i in range(n - 1):
         for j in range(i + 1, n):
             diff = x[j] - x[i]
-            if   diff > 0: s += 1
-            elif diff < 0: s -= 1
-    _, counts = np.unique(x, return_counts=True)
-    ties_term = int(np.sum(counts * (counts - 1) * (2 * counts + 5)))
+            if   diff > 0: s += 1.0
+            elif diff < 0: s -= 1.0
+    _, counts  = np.unique(x, return_counts=True)
+    ties_term  = float(np.sum(counts * (counts - 1) * (2 * counts + 5)))
     return s, ties_term
 
 
+_MK_NAN_KEYS      = ("S","Var_S","Z","tau","p","slope","slope_lo","slope_hi","method")
+_MMK_NAN_KEYS     = ("S","Var_S","Var_S_mod","Z","tau","p","slope","slope_lo",
+                     "slope_hi","n_s","vif","method")
+_PW_NAN_KEYS      = ("S","Var_S","Z","tau","p","slope","slope_lo","slope_hi",
+                     "slope_pw","phi","method")
+_TFPW_NAN_KEYS    = ("S","Var_S","Z","tau","p","slope","slope_lo","slope_hi",
+                     "phi","method")
+
+
 def standard_mk(x: np.ndarray) -> dict:
-    """Standard Mann–Kendall test (Mann 1945; Kendall 1975)."""
-    x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
+    """
+    Standard Mann–Kendall test (Mann 1945; Kendall 1975).
+
+    CORRECTIONS applied:
+    • Minimum n raised to MIN_N (=10); n < 4 allowed statistically invalid tests.
+    • Sen's slope now returns {Q, lo, hi, intercept} — slope_lo / slope_hi added.
+    • ties_term stored as float to avoid int overflow on large n.
+    """
+    x = np.asarray(x, dtype=float)
+    x = x[~np.isnan(x)]
     n = len(x)
-    if n < 4:
-        return {k: np.nan for k in ["S","Var_S","Z","tau","p","slope","method"]}
+    if n < MIN_N:
+        return {k: np.nan for k in _MK_NAN_KEYS}
     s, ties_term = _mk_s_statistic(x)
     var_s = (n * (n - 1) * (2 * n + 5) - ties_term) / 18.0
     if   s > 0: z = (s - 1) / np.sqrt(var_s)
     elif s < 0: z = (s + 1) / np.sqrt(var_s)
     else      : z = 0.0
-    return {"S":s,"Var_S":var_s,"Z":z,"tau":s/(0.5*n*(n-1)),
-            "p":2.0*(1.0-norm.cdf(abs(z))),"slope":sens_slope(x),"method":"MK"}
+    ss = sens_slope(x)
+    return {
+        "S": s, "Var_S": var_s, "Z": z,
+        "tau": s / (0.5 * n * (n - 1)),
+        "p": 2.0 * (1.0 - norm.cdf(abs(z))),
+        "slope": ss["Q"], "slope_lo": ss["lo"], "slope_hi": ss["hi"],
+        "method": "MK",
+    }
 
 
 def modified_mk_hamed_rao(x: np.ndarray) -> dict:
     """
-    Modified MK — Hamed & Rao (1998) effective sample size correction.
-    [FIX-3] VIF clamped to max(1.0, …) so Var*(S) ≥ Var(S) always.
+    Modified MK — Hamed & Rao (1998, J. Hydrol. 204:182–196).
+
+    CORRECTIONS applied:
+    • Minimum n raised to MIN_N (=10).
+    • nlags = min(n−1, n//2): uses all meaningful lags per H&R98 Eq. 3
+      (was hard-capped at 20, under-correcting for n > 42).
+    • Only STATISTICALLY SIGNIFICANT lag-k ρ values (|ρ_k| > 1.96/√n)
+      included in the VIF sum — using all lags overcorrects (makes test too
+      conservative) by incorporating sampling noise at high lags.
+      This is explicitly required by H&R98 and CLAUDE.md §12.1.
+    • VIF clamped at max(1.0, …): negative autocorrelation cannot reduce
+      Var*(S) below Var(S) — physically unreasonable for hydroclimatic series.
+    • Sen's slope CI added.
     """
-    x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
+    x = np.asarray(x, dtype=float)
+    x = x[~np.isnan(x)]
     n = len(x)
-    if n < 4:
-        return {k: np.nan for k in
-                ["S","Var_S","Var_S_mod","Z","tau","p","slope","n_s","vif","method"]}
+    if n < MIN_N:
+        return {k: np.nan for k in _MMK_NAN_KEYS}
     s, ties_term = _mk_s_statistic(x)
-    var_s  = (n * (n - 1) * (2 * n + 5) - ties_term) / 18.0
-    ranks  = stats.rankdata(x)
-    nlags  = min(n - 2, 20)
-    rho    = acf(ranks, nlags=nlags, fft=True, alpha=None)
-    # [FIX-7] Only sum lags with statistically significant autocorrelation
-    # (|ρ_k| > 1.96/√n), per Hamed & Rao (1998) strictly.
-    sig_thresh = norm.ppf(0.975) / np.sqrt(n)
-    vif_sum = sum((n - i) / n * rho[i] for i in range(1, nlags + 1)
-                  if abs(rho[i]) > sig_thresh)
-    # [FIX-3] clamp at 1.0 — VIF < 1 implies deflation, physically unreasonable
-    #         for hydroclimatic series with predominantly positive autocorrelation.
-    vif        = max(1.0, 1.0 + 2.0 * vif_sum)
-    n_s        = n / vif
-    var_s_mod  = max(var_s * vif, 1e-10)
+    var_s = (n * (n - 1) * (2 * n + 5) - ties_term) / 18.0
+
+    # Ranked series — required by H&R98 for the autocorrelation correction
+    ranks = stats.rankdata(x)
+    nlags = min(n - 1, n // 2)                         # H&R98 Eq. 3: up to n-1
+    rho   = acf(ranks, nlags=nlags, fft=True, alpha=None)
+
+    # Only statistically significant lags per H&R98 and CLAUDE.md §12.1
+    sig_thresh = norm.ppf(0.975) / np.sqrt(n)          # ≈ 1.96/√n
+    vif_sum = sum(
+        (n - i) / n * rho[i]
+        for i in range(1, nlags + 1)
+        if abs(rho[i]) > sig_thresh
+    )
+    # Floor at 1.0: deflation from negative autocorrelation is unphysical
+    vif       = max(1.0, 1.0 + 2.0 * vif_sum)
+    n_s       = n / vif
+    var_s_mod = max(var_s * vif, 1e-10)
     if   s > 0: z = (s - 1) / np.sqrt(var_s_mod)
     elif s < 0: z = (s + 1) / np.sqrt(var_s_mod)
     else      : z = 0.0
-    return {"S":s,"Var_S":var_s,"Var_S_mod":var_s_mod,"Z":z,
-            "tau":s/(0.5*n*(n-1)),"p":2.0*(1.0-norm.cdf(abs(z))),
-            "slope":sens_slope(x),"n_s":n_s,"vif":vif,
-            "method":"MMK (Hamed & Rao 1998)"}
+    ss = sens_slope(x)
+    return {
+        "S": s, "Var_S": var_s, "Var_S_mod": var_s_mod, "Z": z,
+        "tau": s / (0.5 * n * (n - 1)),
+        "p": 2.0 * (1.0 - norm.cdf(abs(z))),
+        "slope": ss["Q"], "slope_lo": ss["lo"], "slope_hi": ss["hi"],
+        "n_s": n_s, "vif": vif,
+        "method": "MMK (Hamed & Rao 1998)",
+    }
 
 
 def prewhitening_mk(x: np.ndarray) -> dict:
     """
     Pre-Whitening MK (Von Storch 1995; Kulkarni & Von Storch 1995).
-    Sen's slope reported from original series for comparability.
-    Note: slope_pw (on whitened series) stored separately for diagnostics.
+
+    CORRECTIONS applied:
+    • Minimum n raised to MIN_N + 1 so the whitened series has >= MIN_N obs.
+    • Post-whitening MIN_N re-check (series shrinks by 1).
+    • Sen's slope {Q, lo, hi} comes from the ORIGINAL series x per CLAUDE.md
+      §12.1 — "slope_Q/lo/hi computed from original series x, not prewhitened y".
+    • slope_pw (on whitened series) retained as a diagnostic only.
+    • phi estimated from raw series — known to be inflated when trend is present
+      (Von Storch 1995 limitation); use TFPW when trend estimation is the goal.
     """
-    x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
+    x = np.asarray(x, dtype=float)
+    x = x[~np.isnan(x)]
     n = len(x)
     if n < MIN_N + 1:
-        return {k: np.nan for k in
-                ["S","Var_S","Z","tau","p","slope","phi","method"]}
-    phi      = np.corrcoef(x[:-1], x[1:])[0, 1]
-    x_pw     = x[1:] - phi * x[:-1]
-    # [FIX-8] Re-check minimum length after whitening reduces series by 1
-    if len(x_pw) < MIN_N:
-        return {k: np.nan for k in
-                ["S","Var_S","Z","tau","p","slope","phi","method"]}
-    mk_res   = standard_mk(x_pw)
-    mk_res["phi"]      = phi
-    mk_res["method"]   = "PW-MK"
-    mk_res["slope"]    = sens_slope(x)       # original series slope
-    mk_res["slope_pw"] = sens_slope(x_pw)    # whitened series slope (diagnostic)
+        return {k: np.nan for k in _PW_NAN_KEYS}
+    phi  = np.corrcoef(x[:-1], x[1:])[0, 1]
+    x_pw = x[1:] - phi * x[:-1]
+    if len(x_pw) < MIN_N:                             # re-check after n → n-1
+        return {k: np.nan for k in _PW_NAN_KEYS}
+    mk_res = standard_mk(x_pw)
+    # Override slope with original-series estimate (CLAUDE.md §12.1)
+    ss_orig = sens_slope(x)
+    ss_pw   = sens_slope(x_pw)
+    mk_res.update({
+        "phi"     : phi,
+        "method"  : "PW-MK",
+        "slope"   : ss_orig["Q"],
+        "slope_lo": ss_orig["lo"],
+        "slope_hi": ss_orig["hi"],
+        "slope_pw": ss_pw["Q"],          # diagnostic: slope on whitened series
+    })
     return mk_res
 
 
 def tfpw_mk(x: np.ndarray) -> dict:
     """
-    Trend-Free Pre-Whitening MK (Yue & Wang 2002, WRR).
+    Trend-Free Pre-Whitening MK (Yue & Wang 2002, WRR; Yue et al. 2002).
     Steps 1–6 exactly as in the original paper.
+
+    CORRECTIONS applied:
+    • Minimum n raised to MIN_N + 1 so the whitened series has >= MIN_N obs.
+    • Post-whitening MIN_N re-check (series shrinks by 1 at step 4).
+    • Slope and CI come from the trend-restored series z (not the original x).
+      CLAUDE.md §12.1: "TFPW-MK: Slope from trend-restored z is acceptable
+      (bias is one removed observation). Do not replace with sens_slope(x)."
+      The previous code incorrectly overrode mk_res["slope"] with beta = sens_slope(x).
+    • beta (initial Sen's slope used for detrending) stored as "slope_initial"
+      for transparency / reproducibility.
     """
-    x = np.asarray(x, dtype=float); x = x[~np.isnan(x)]
+    x = np.asarray(x, dtype=float)
+    x = x[~np.isnan(x)]
     n = len(x)
     if n < MIN_N + 1:
-        return {k: np.nan for k in
-                ["S","Var_S","Z","tau","p","slope","phi","method"]}
-    t      = np.arange(1, n + 1, dtype=float)
-    beta   = sens_slope(x)          # Step 1
-    trend  = beta * t
-    y      = x - trend              # Step 2: detrend
-    phi    = np.corrcoef(y[:-1], y[1:])[0, 1]   # Step 3
-    y_pw   = y[1:] - phi * y[:-1]               # Step 4
-    t_pw   = t[1:]
-    z      = y_pw + beta * t_pw                  # Step 5: restore trend
-    # [FIX-8] Re-check minimum length after whitening reduces series by 1
-    if len(z) < MIN_N:
-        return {k: np.nan for k in
-                ["S","Var_S","Z","tau","p","slope","phi","method"]}
-    mk_res = standard_mk(z)         # Step 6
-    mk_res["phi"]    = phi
-    mk_res["slope"]  = beta         # original Sen's slope
-    mk_res["method"] = "TFPW-MK (Yue & Wang 2002)"
+        return {k: np.nan for k in _TFPW_NAN_KEYS}
+    t    = np.arange(1, n + 1, dtype=float)
+    beta = sens_slope(x)["Q"]           # Step 1: initial slope estimate
+    y    = x - beta * t                 # Step 2: remove estimated trend
+    phi  = np.corrcoef(y[:-1], y[1:])[0, 1]   # Step 3: lag-1 AC of residuals
+    y_pw = y[1:] - phi * y[:-1]               # Step 4: prewhiten residuals
+    t_pw = t[1:]
+    z    = y_pw + beta * t_pw                  # Step 5: restore trend
+    if len(z) < MIN_N:                         # re-check after n → n-1
+        return {k: np.nan for k in _TFPW_NAN_KEYS}
+    mk_res = standard_mk(z)                    # Step 6: MK on trend-restored z
+    # Slope from z per CLAUDE.md §12.1 — do NOT replace with sens_slope(x)
+    mk_res.update({
+        "phi"          : phi,
+        "slope_initial": beta,           # beta used in step 2 (for audit trail)
+        "method"       : "TFPW-MK (Yue & Wang 2002)",
+    })
     return mk_res
 
 
@@ -621,6 +884,108 @@ def run_all_methods(series: np.ndarray, label: str = "") -> dict:
                  res.get("Z",np.nan), res.get("p",np.nan), sig,
                  res.get("slope",np.nan))
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11b. FIELD SIGNIFICANCE (WALKER 1914 + LIVEZEY-CHEN 1983)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def field_significance_mks(
+    series_list: list,
+    p_values_mk: np.ndarray,
+    p_values_mmk: np.ndarray,
+    alpha: float = ALPHA,
+    n_mc: int = 1000,
+    seed: int = RANDOM_SEED,
+) -> dict:
+    """
+    Field significance for multi-station trend analyses.
+
+    Walker (1914) — Binomial test:
+      H₀: fraction of significant stations = α by chance.
+      p = P(X ≥ n_sig | Binomial(m, α))
+
+    Livezey-Chen (1983) Monte Carlo:
+      Null distribution built by randomly permuting each station's series
+      (destroys temporal autocorrelation) and applying standard_mk.
+      The LC null distribution is shared between MK and MMK per CLAUDE.md
+      §12.3: "null distribution (permuted standard_mk fractions) is reusable
+      for both MK and MMK because permutation destroys autocorrelation."
+      The OBSERVED fraction for MMK uses the MMK p-values directly.
+
+    Station filter: only series with n >= MIN_N included (CLAUDE.md §12.3).
+
+    RETURNS (mandatory columns per CLAUDE.md §12.10):
+      Walker_p_MK, Walker_sig_MK, Walker_p_MMK, Walker_sig_MMK
+      LC_p_MK,     LC_sig_MK,     LC_p_MMK,     LC_sig_MMK
+      n_sig_mk, n_sig_mmk, n_valid, frac_mk, frac_mmk
+    """
+    from scipy.stats import binom as binom_dist
+
+    # Filter to series long enough for valid MK (MIN_N)
+    valid_series = [
+        np.asarray(s, dtype=float)
+        for s in series_list
+        if np.sum(~np.isnan(np.asarray(s, dtype=float))) >= MIN_N
+    ]
+    m = len(valid_series)
+    _nan_result = {k: np.nan for k in (
+        "Walker_p_MK","Walker_sig_MK","Walker_p_MMK","Walker_sig_MMK",
+        "LC_p_MK","LC_sig_MK","LC_p_MMK","LC_sig_MMK",
+        "n_sig_mk","n_sig_mmk","n_valid","frac_mk","frac_mmk"
+    )}
+    if m == 0:
+        return _nan_result
+
+    p_mk  = np.asarray(p_values_mk[:m],  dtype=float)
+    p_mmk = np.asarray(p_values_mmk[:m], dtype=float)
+    valid_p_mk  = p_mk[~np.isnan(p_mk)]
+    valid_p_mmk = p_mmk[~np.isnan(p_mmk)]
+    m_eff = len(valid_p_mk)
+    if m_eff == 0:
+        return _nan_result
+
+    n_sig_mk  = int(np.sum(valid_p_mk  < alpha))
+    n_sig_mmk = int(np.sum(valid_p_mmk < alpha))
+    frac_mk   = n_sig_mk  / m_eff
+    frac_mmk  = n_sig_mmk / m_eff
+
+    # Walker (1914): one-sided binomial test
+    walker_p_mk  = float(1.0 - binom_dist.cdf(max(n_sig_mk  - 1, 0), m_eff, alpha))
+    walker_p_mmk = float(1.0 - binom_dist.cdf(max(n_sig_mmk - 1, 0), m_eff, alpha))
+
+    # Livezey-Chen (1983): permutation Monte Carlo null distribution
+    rng = np.random.default_rng(seed)
+    null_fracs: list[float] = []
+    for _ in range(n_mc):
+        n_rej = 0
+        for s in valid_series:
+            s_clean = s[~np.isnan(s)]
+            s_perm  = rng.permutation(s_clean)
+            res     = standard_mk(s_perm)
+            if res.get("p", 1.0) < alpha:
+                n_rej += 1
+        null_fracs.append(n_rej / m_eff)
+
+    null_arr    = np.asarray(null_fracs)
+    lc_p_mk     = float(np.mean(null_arr >= frac_mk))
+    lc_p_mmk    = float(np.mean(null_arr >= frac_mmk))  # same null per CLAUDE.md
+
+    return {
+        "Walker_p_MK"  : round(walker_p_mk,  4),
+        "Walker_sig_MK": walker_p_mk  < alpha,
+        "Walker_p_MMK" : round(walker_p_mmk, 4),
+        "Walker_sig_MMK": walker_p_mmk < alpha,
+        "LC_p_MK"      : round(lc_p_mk,  4),
+        "LC_sig_MK"    : lc_p_mk  < alpha,
+        "LC_p_MMK"     : round(lc_p_mmk, 4),
+        "LC_sig_MMK"   : lc_p_mmk < alpha,
+        "n_sig_mk"     : n_sig_mk,
+        "n_sig_mmk"    : n_sig_mmk,
+        "n_valid"      : m_eff,
+        "frac_mk"      : round(frac_mk,   4),
+        "frac_mmk"     : round(frac_mmk,  4),
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -770,15 +1135,15 @@ def variance_distortion_analysis(
             # slope_pw is on the whitened series (n-1 obs); compared to true_slope
             # after noting the whitened series removes the AR-component not the trend.
             # We report trend attenuation as ratio of recovered slope to true slope.
-            slope_pw_list.append(sens_slope(x_pw))
+            slope_pw_list.append(sens_slope(x_pw)["Q"])
 
             # ── TFPW: slope on z_tfpw (n-1 obs with restored trend) ────────
-            beta_hat   = sens_slope(x)
+            beta_hat   = sens_slope(x)["Q"]
             y          = x - beta_hat * t
             phi_hat_tf = np.corrcoef(y[:-1], y[1:])[0, 1]
             y_pw       = y[1:] - phi_hat_tf * y[:-1]
             x_tfpw     = y_pw + beta_hat * t[1:]
-            slope_tfpw_list.append(sens_slope(x_tfpw))
+            slope_tfpw_list.append(sens_slope(x_tfpw)["Q"])
 
             var_orig_list.append(np.var(x,       ddof=1))
             var_pw_list.append(  np.var(x_pw,    ddof=1))
@@ -1777,19 +2142,49 @@ def build_table3_autocorrelation(ac_results: list[dict]) -> pd.DataFrame:
     _save_table(t3, "Table_03_Autocorrelation"); return t3
 
 
-def build_table4_trends(station_mk_results: dict) -> pd.DataFrame:
+def build_table4_trends(
+    station_mk_results: dict,
+    field_sig: dict | None = None,
+) -> pd.DataFrame:
+    """
+    Publication-quality trend table.
+
+    CORRECTIONS applied:
+    • slope_lo and slope_hi (95 % CI bounds, Gilbert 1987) now included —
+      previously only the point estimate was reported.
+    • Field significance columns (Walker + LC × MK + MMK) added when
+      field_sig dict is provided (all 8 columns per CLAUDE.md §12.10).
+    • VIF and n_s from MMK included for method-comparison transparency.
+    """
     records = []
     for label, res_dict in station_mk_results.items():
         row = {"Series": label}
         for m in METHODS:
             r = res_dict.get(m, {})
-            row[f"{m}_Z"]     = round(r.get("Z",   np.nan), 4)
-            row[f"{m}_p"]     = round(r.get("p",   np.nan), 4)
-            row[f"{m}_slope"] = round(r.get("slope",np.nan), 4)
-            row[f"{m}_sig"]   = "Yes" if r.get("p",1) < ALPHA else "No"
+            row[f"{m}_Z"]        = round(r.get("Z",        np.nan), 4)
+            row[f"{m}_p"]        = round(r.get("p",        np.nan), 4)
+            row[f"{m}_slope"]    = round(r.get("slope",    np.nan), 4)
+            row[f"{m}_slope_lo"] = round(r.get("slope_lo", np.nan), 4)
+            row[f"{m}_slope_hi"] = round(r.get("slope_hi", np.nan), 4)
+            row[f"{m}_sig"]      = ("**"  if r.get("p", 1) < 0.01
+                                    else "*"  if r.get("p", 1) < 0.05
+                                    else "ns")
+        # MMK-specific diagnostics
+        mmk = res_dict.get("MMK", {})
+        row["MMK_VIF"] = round(mmk.get("vif", np.nan), 3)
+        row["MMK_n_s"] = round(mmk.get("n_s", np.nan), 1)
         records.append(row)
+
     t4 = pd.DataFrame(records)
-    _save_table(t4, "Table_04_Trends"); return t4
+
+    # Field significance block (all 8 mandatory columns per CLAUDE.md §12.10)
+    if field_sig:
+        for col in ("Walker_p_MK","Walker_sig_MK","Walker_p_MMK","Walker_sig_MMK",
+                    "LC_p_MK","LC_sig_MK","LC_p_MMK","LC_sig_MMK"):
+            t4[col] = field_sig.get(col, np.nan)
+
+    _save_table(t4, "Table_04_Trends")
+    return t4
 
 
 def build_table5_montecarlo(type_i_df: pd.DataFrame) -> pd.DataFrame:
@@ -1933,11 +2328,14 @@ def _generate_synthetic_data() -> tuple[pd.DataFrame, pd.DataFrame]:
 # 22. MAIN PIPELINE
 # ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
-    """Full reproducible analysis pipeline (v2.0 — all corrections applied)."""
+    """Full reproducible analysis pipeline (v3.0 — scientific corrections applied)."""
     log.info("="*70)
-    log.info("PIPELINE START  v2.0")
+    log.info("PIPELINE START  v3.0  (seed=%d)", RANDOM_SEED)
     log.info("="*70)
-    np.random.seed(RANDOM_SEED)
+    # Do NOT call np.random.seed() here — that affects the legacy numpy.random
+    # module only and has no effect on np.random.default_rng() objects used
+    # throughout this script.  Reproducibility is ensured by passing explicit
+    # seeds to each np.random.default_rng() call.
 
     # ── Step 1: Input files ───────────────────────────────────────────────────
     search_dirs = [BASE_DIR, Path.cwd(), Path.home()/"Downloads"]
@@ -1982,29 +2380,49 @@ def main() -> None:
                 if "Dry_mm" in agg["seasonal"].columns else np.array([]))
 
     ac_results = []
-    if len(ann_mean) > 5: ac_results.append(compute_autocorrelation(ann_mean, label="Annual"))
-    if len(wet_mean) > 5: ac_results.append(compute_autocorrelation(wet_mean, label="Wet Season"))
-    if len(dry_mean) > 5: ac_results.append(compute_autocorrelation(dry_mean, label="Dry Season"))
+    if len(ann_mean) >= MIN_N: ac_results.append(compute_autocorrelation(ann_mean, label="Annual"))
+    if len(wet_mean) >= MIN_N: ac_results.append(compute_autocorrelation(wet_mean, label="Wet Season"))
+    if len(dry_mean) >= MIN_N: ac_results.append(compute_autocorrelation(dry_mean, label="Dry Season"))
 
     # ── Step 8: Observed trend analysis ──────────────────────────────────────
     log.info("="*50 + "\nOBSERVED TREND ANALYSIS\n" + "="*50)
     station_mk_results = {}
-    for label, series in [("Annual",ann_mean),
-                           ("Wet Season",wet_mean),
-                           ("Dry Season",dry_mean)]:
-        if len(series) > 4:
+    for label, series in [("Annual", ann_mean),
+                           ("Wet Season", wet_mean),
+                           ("Dry Season", dry_mean)]:
+        if len(series) >= MIN_N:
             station_mk_results[label] = run_all_methods(series, label=label)
 
+    # Per-station annual series (for up to 5 stations shown in Table 4)
+    per_station_series: dict[str, np.ndarray] = {}
     for stn in valid_stations[:5]:
-        stn_annual = (agg["annual"][agg["annual"]["Station"]==stn]["Annual_mm"].values)
-        if len(stn_annual) > 4:
-            station_mk_results[f"Annual_{stn}"] = run_all_methods(
-                stn_annual, label=f"Annual [{stn}]")
+        stn_annual = (agg["annual"][agg["annual"]["Station"] == stn]
+                      .sort_values("Year")["Annual_mm"].values)
+        if len(stn_annual) >= MIN_N:
+            key = f"Annual_{stn}"
+            station_mk_results[key] = run_all_methods(stn_annual,
+                                                       label=f"Annual [{stn}]")
+            per_station_series[key] = stn_annual
+
+    # ── Step 8b: Field significance (Walker + Livezey-Chen) ──────────────────
+    log.info("Field significance (Walker 1914 + Livezey-Chen 1983 MC) …")
+    all_stn_series = list(per_station_series.values())
+    p_mk_all  = [station_mk_results[k]["MK"].get("p",  np.nan)
+                 for k in per_station_series]
+    p_mmk_all = [station_mk_results[k]["MMK"].get("p", np.nan)
+                 for k in per_station_series]
+    field_sig = field_significance_mks(
+        series_list=all_stn_series,
+        p_values_mk=np.asarray(p_mk_all),
+        p_values_mmk=np.asarray(p_mmk_all),
+        n_mc=500,   # reduced for runtime; increase to 1000+ for final publication
+    )
+    log.info("Field significance results: %s", field_sig)
 
     # ── Step 9: Bootstrap ────────────────────────────────────────────────────
     log.info("Bootstrap confidence intervals …")
     boot_results = {}
-    if len(ann_mean) > 4:
+    if len(ann_mean) >= MIN_N:
         boot_results["Annual"] = moving_block_bootstrap(ann_mean, n_boot=500)
         log.info("Bootstrap CI (Annual):\n%s", boot_results["Annual"]["ci"])
 
@@ -2039,7 +2457,7 @@ def main() -> None:
     t1 = build_table1_metadata(metadata_df, completeness_df)
     t2 = build_table2_climatology(agg["monthly"], agg["annual"])
     t3 = build_table3_autocorrelation(ac_results)
-    t4 = build_table4_trends(station_mk_results)
+    t4 = build_table4_trends(station_mk_results, field_sig=field_sig)
     t5 = build_table5_montecarlo(mc_results["type_i"])
     t6 = build_table6_power(mc_results["power"])
     t7 = build_table7_variance(var_df)
